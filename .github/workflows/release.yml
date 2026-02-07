@@ -99,7 +99,7 @@ jobs:
           bun-version: latest
 
       - name: Install root dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Build core
         run: |
@@ -118,7 +118,7 @@ jobs:
         working-directory: apps/app
 
       - name: Install Electron dependencies
-        run: npm ci || npm install
+        run: npm install --no-audit --no-fund
         working-directory: apps/app/electron
 
       - name: Build Electron app
