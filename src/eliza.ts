@@ -52,6 +52,7 @@ interface ResolvedPlugin {
 interface PluginModuleShape {
   default?: Plugin;
   plugin?: Plugin;
+  [key: string]: Plugin | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +101,7 @@ const CHANNEL_ENV_MAP: Readonly<Record<string, Readonly<Record<string, string>>>
 /** Core plugins that should always be loaded. */
 const CORE_PLUGINS: readonly string[] = [
   "@elizaos/plugin-sql",
-  "@elizaos/plugin-local-embedding", // Local embeddings first — no API key needed
+  // "@elizaos/plugin-local-embedding", // DISABLED: 404 on npm — see DISABLED-PLUGINS.md
   "@elizaos/plugin-agent-skills",
   "@elizaos/plugin-agent-orchestrator",
   "@elizaos/plugin-directives",
@@ -108,23 +109,23 @@ const CORE_PLUGINS: readonly string[] = [
   "@elizaos/plugin-shell",
   "@elizaos/plugin-personality",
   "@elizaos/plugin-experience",
-  "@elizaos/plugin-form",
-  "@elizaos/plugin-browser",
-  "@elizaos/plugin-cli",
-  "@elizaos/plugin-code",
-  "@elizaos/plugin-computeruse",
+  // "@elizaos/plugin-form",            // DISABLED: published without dist/ — npm package is empty
+  // "@elizaos/plugin-browser",         // DISABLED: stale workspace:* dep on @elizaos/plugin-cli causes missing export
+  // "@elizaos/plugin-cli",             // DISABLED: 404 on npm — see DISABLED-PLUGINS.md
+  // "@elizaos/plugin-code",            // DISABLED: spec name mismatch (coderStatusProvider vs CODER_STATUS) in published package
+  // "@elizaos/plugin-computeruse",     // DISABLED: workspace dep not found — see DISABLED-PLUGINS.md
   "@elizaos/plugin-edge-tts",
-  "@elizaos/plugin-goals",
+  // "@elizaos/plugin-goals",           // DISABLED: actions.json has placeholder data — missing CANCEL_GOAL, CREATE_GOAL, etc.
   "@elizaos/plugin-knowledge",
   "@elizaos/plugin-mcp",
   "@elizaos/plugin-pdf",
-  "@elizaos/plugin-scheduling",
+  // "@elizaos/plugin-scheduling",      // DISABLED: published without dist/ — npm package is empty
   "@elizaos/plugin-scratchpad",
   "@elizaos/plugin-secrets-manager",
   "@elizaos/plugin-todo",
-  "@elizaos/plugin-trust",
-  "@elizaos/plugin-vision",
-  // "@elizaos/plugin-cron",     // Requires worldId; skip for dev
+  // "@elizaos/plugin-trust",           // DISABLED: tag "next" not found — see DISABLED-PLUGINS.md
+  // "@elizaos/plugin-vision",          // DISABLED: @tensorflow/tfjs-node native addon fails to build on macOS
+  // "@elizaos/plugin-cron",            // Requires worldId; skip for dev
 ];
 
 /** Maps Milaidy channel names to ElizaOS plugin package names. */
@@ -166,9 +167,20 @@ function looksLikePlugin(value: unknown): value is Plugin {
 }
 
 function extractPlugin(mod: PluginModuleShape): Plugin | null {
+  // 1. Prefer explicit default export
   if (looksLikePlugin(mod.default)) return mod.default;
+  // 2. Check for a named `plugin` export
   if (looksLikePlugin(mod.plugin)) return mod.plugin;
+  // 3. Check if the module itself looks like a Plugin (CJS default pattern)
   if (looksLikePlugin(mod)) return mod as unknown as Plugin;
+  // 4. Scan named exports for the first value that looks like a Plugin.
+  //    This handles packages whose build drops the default export but still
+  //    have a named export (e.g. `knowledgePlugin` from plugin-knowledge).
+  for (const key of Object.keys(mod)) {
+    if (key === "default" || key === "plugin") continue;
+    const value = mod[key];
+    if (looksLikePlugin(value)) return value;
+  }
   return null;
 }
 
@@ -251,9 +263,11 @@ async function resolvePlugins(config: MilaidyConfig): Promise<ResolvedPlugin[]> 
   } satisfies ApplyPluginAutoEnableParams);
 
   const pluginsToLoad = collectPluginNames(config);
+  const corePluginSet = new Set<string>(CORE_PLUGINS);
 
   // Dynamically import each plugin
   for (const pluginName of pluginsToLoad) {
+    const isCore = corePluginSet.has(pluginName);
     try {
       const mod = (await import(pluginName)) as PluginModuleShape;
       const pluginInstance = extractPlugin(mod);
@@ -261,12 +275,22 @@ async function resolvePlugins(config: MilaidyConfig): Promise<ResolvedPlugin[]> 
       if (pluginInstance) {
         plugins.push({ name: pluginName, plugin: pluginInstance });
       } else {
-        logger.warn(`[milaidy] Plugin ${pluginName} did not export a valid Plugin object`);
+        const msg = `[milaidy] Plugin ${pluginName} did not export a valid Plugin object`;
+        if (isCore) {
+          logger.error(msg);
+        } else {
+          logger.warn(msg);
+        }
       }
     } catch (err) {
-      // Don't crash on optional plugins — just warn
+      // Core plugins log at error level (visible even with LOG_LEVEL=error).
+      // Optional/channel plugins log at warn level so they don't spam in dev.
       const msg = err instanceof Error ? err.message : String(err);
-      logger.warn(`[milaidy] Could not load plugin ${pluginName}: ${msg}`);
+      if (isCore) {
+        logger.error(`[milaidy] Failed to load core plugin ${pluginName}: ${msg}`);
+      } else {
+        logger.warn(`[milaidy] Could not load plugin ${pluginName}: ${msg}`);
+      }
     }
   }
 
@@ -1028,9 +1052,33 @@ export async function startEliza(opts?: StartElizaOptions): Promise<AgentRuntime
     },
   });
 
-  // 7b. Pre-register plugin-sql so the adapter is ready before other plugins init
+  // 7b. Pre-register plugin-sql so the adapter is ready before other plugins init.
+  //     This MUST succeed before initialize() — otherwise other plugins (e.g.
+  //     plugin-todo) will crash when accessing runtime.db because the adapter
+  //     hasn't been set yet.  runtime.db is a getter that does this.adapter.db
+  //     and throws when this.adapter is undefined.
   if (sqlPlugin) {
     await runtime.registerPlugin(sqlPlugin.plugin);
+  } else {
+    const loadedNames = resolvedPlugins.map((p) => p.name).join(", ");
+    logger.error(
+      `[milaidy] @elizaos/plugin-sql was NOT found among resolved plugins. ` +
+      `Loaded: [${loadedNames}]`,
+    );
+    throw new Error(
+      "@elizaos/plugin-sql is required but was not loaded. " +
+      "Ensure the package is installed and built (check for import errors above).",
+    );
+  }
+
+  // 7c. Eagerly initialize the database adapter so it's fully ready (connection
+  //     open, schema bootstrapped) BEFORE other plugins run their init().
+  //     runtime.initialize() also calls adapter.init() but that happens AFTER
+  //     all plugin inits — too late for plugins that need runtime.db during init.
+  //     The call is idempotent (runtime.initialize checks adapter.isReady()).
+  if (runtime.adapter && !(await runtime.adapter.isReady())) {
+    await runtime.adapter.init();
+    logger.info("[milaidy] Database adapter initialized early (before plugin inits)");
   }
 
   // 8. Initialize the runtime (registers remaining plugins, starts services)
