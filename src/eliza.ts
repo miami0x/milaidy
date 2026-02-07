@@ -367,6 +367,7 @@ export async function resolvePackageEntry(pkgRoot: string): Promise<string> {
   try {
     const raw = await fs.readFile(path.join(pkgRoot, "package.json"), "utf-8");
     const pkg = JSON.parse(raw) as {
+      name?: string;
       main?: string;
       exports?: Record<string, string | Record<string, string>> | string;
     };
