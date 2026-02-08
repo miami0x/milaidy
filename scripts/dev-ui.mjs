@@ -40,7 +40,11 @@ function createErrorFilter(dest) {
     const lines = buf.split("\n");
     buf = lines.pop(); // keep incomplete last line in buffer
     for (const line of lines) {
-      if (line.trim() && !SUPPRESS_RE.test(line) && !SUPPRESS_UNSTRUCTURED_RE.test(line)) {
+      if (
+        line.trim() &&
+        !SUPPRESS_RE.test(line) &&
+        !SUPPRESS_UNSTRUCTURED_RE.test(line)
+      ) {
         dest.write(line + "\n");
       }
     }

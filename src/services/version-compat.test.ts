@@ -204,8 +204,7 @@ describe("diagnoseNoAIProvider", () => {
     const failed = [
       {
         name: "@elizaos/plugin-ollama",
-        error:
-          "does not provide an export named 'MAX_EMBEDDING_TOKENS'",
+        error: "does not provide an export named 'MAX_EMBEDDING_TOKENS'",
       },
     ];
     const msg = diagnoseNoAIProvider(loaded, failed);
@@ -230,10 +229,7 @@ describe("diagnoseNoAIProvider", () => {
   });
 
   it("returns null when a non-provider plugin fails but providers load", () => {
-    const loaded = [
-      "@elizaos/plugin-sql",
-      "@elizaos/plugin-openai",
-    ];
+    const loaded = ["@elizaos/plugin-sql", "@elizaos/plugin-openai"];
     const failed = [
       {
         name: "@elizaos/plugin-discord",

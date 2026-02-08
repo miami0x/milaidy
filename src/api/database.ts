@@ -15,10 +15,7 @@
 
 import http from "node:http";
 import { type AgentRuntime, logger } from "@elizaos/core";
-import {
-  loadMilaidyConfig,
-  saveMilaidyConfig,
-} from "../config/config.js";
+import { loadMilaidyConfig, saveMilaidyConfig } from "../config/config.js";
 import type {
   DatabaseConfig,
   DatabaseProviderType,
@@ -134,7 +131,8 @@ function sqlLiteral(v: unknown): string {
   if (v === null || v === undefined) return "NULL";
   if (typeof v === "number") return String(v);
   if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
-  if (typeof v === "object") return `'${JSON.stringify(v).replace(/'/g, "''")}'::jsonb`;
+  if (typeof v === "object")
+    return `'${JSON.stringify(v).replace(/'/g, "''")}'::jsonb`;
   return `'${String(v).replace(/'/g, "''")}'`;
 }
 
@@ -150,9 +148,9 @@ function sqlPredicate(col: string, val: unknown): string {
   return `${quoteIdent(col)} = ${sqlLiteral(val)}`;
 }
 
-
 // Cached drizzle-orm sql helper; resolved once on first call.
-let _sqlHelper: { raw: (query: string) => { queryChunks: unknown[] } } | null = null;
+let _sqlHelper: { raw: (query: string) => { queryChunks: unknown[] } } | null =
+  null;
 async function getDrizzleSql(): Promise<typeof _sqlHelper> {
   if (!_sqlHelper) {
     const drizzle = await import("drizzle-orm");
@@ -536,17 +534,13 @@ async function handleGetRows(
     req.url ?? "/",
     `http://${req.headers.host ?? "localhost"}`,
   );
-  const offset = Math.max(
-    0,
-    Number(url.searchParams.get("offset") ?? "0"),
-  );
+  const offset = Math.max(0, Number(url.searchParams.get("offset") ?? "0"));
   const limit = Math.min(
     500,
     Math.max(1, Number(url.searchParams.get("limit") ?? "50")),
   );
   const sortCol = url.searchParams.get("sort") ?? "";
-  const sortOrder =
-    url.searchParams.get("order") === "desc" ? "DESC" : "ASC";
+  const sortOrder = url.searchParams.get("order") === "desc" ? "DESC" : "ASC";
   const search = url.searchParams.get("search") ?? "";
 
   if (!(await assertTableExists(runtime, tableName))) {
@@ -566,15 +560,11 @@ async function handleGetRows(
   );
   const columnNames = colResult.rows.map((r) => String(r.column_name));
   const columnTypes = new Map(
-    colResult.rows.map((r) => [
-      String(r.column_name),
-      String(r.data_type),
-    ]),
+    colResult.rows.map((r) => [String(r.column_name), String(r.data_type)]),
   );
 
   // Validate sort column
-  const validSort =
-    sortCol && columnNames.includes(sortCol) ? sortCol : "";
+  const validSort = sortCol && columnNames.includes(sortCol) ? sortCol : "";
 
   // Build search clause: search across all text-castable columns
   let whereClause = "";
@@ -600,7 +590,8 @@ async function handleGetRows(
     });
     if (textColumns.length > 0) {
       const conditions = textColumns.map(
-        (col) => `${quoteIdent(col)}::text ILIKE '%${escapedSearch}%' ESCAPE '\'`,
+        (col) =>
+          `${quoteIdent(col)}::text ILIKE '%${escapedSearch}%' ESCAPE '\'`,
       );
       whereClause = `WHERE (${conditions.join(" OR ")})`;
     }
@@ -652,10 +643,7 @@ async function handleInsertRow(
     typeof body.data !== "object" ||
     Object.keys(body.data).length === 0
   ) {
-    errorResponse(
-      res,
-      "Request body must include a non-empty 'data' object.",
-    );
+    errorResponse(res, "Request body must include a non-empty 'data' object.");
     return;
   }
 
@@ -707,8 +695,12 @@ async function handleUpdateRow(
     return;
   }
 
-  const setClauses = Object.entries(body.data).map(([col, val]) => sqlAssign(col, val));
-  const whereClauses = Object.entries(body.where).map(([col, val]) => sqlPredicate(col, val));
+  const setClauses = Object.entries(body.data).map(([col, val]) =>
+    sqlAssign(col, val),
+  );
+  const whereClauses = Object.entries(body.where).map(([col, val]) =>
+    sqlPredicate(col, val),
+  );
 
   const result = await executeRawSql(
     runtime,
@@ -748,7 +740,9 @@ async function handleDeleteRow(
     return;
   }
 
-  const whereClauses = Object.entries(body.where).map(([col, val]) => sqlPredicate(col, val));
+  const whereClauses = Object.entries(body.where).map(([col, val]) =>
+    sqlPredicate(col, val),
+  );
 
   const result = await executeRawSql(
     runtime,
@@ -784,10 +778,7 @@ async function handleQuery(
     typeof body.sql !== "string" ||
     body.sql.trim().length === 0
   ) {
-    errorResponse(
-      res,
-      "Request body must include a non-empty 'sql' string.",
-    );
+    errorResponse(res, "Request body must include a non-empty 'sql' string.");
     return;
   }
 
@@ -804,8 +795,15 @@ async function handleQuery(
       .trim();
     const firstWord = stripped.split(/\s+/)[0].toUpperCase();
     const mutationKeywords = new Set([
-      "INSERT", "UPDATE", "DELETE", "DROP", "ALTER",
-      "TRUNCATE", "CREATE", "GRANT", "REVOKE",
+      "INSERT",
+      "UPDATE",
+      "DELETE",
+      "DROP",
+      "ALTER",
+      "TRUNCATE",
+      "CREATE",
+      "GRANT",
+      "REVOKE",
     ]);
     if (mutationKeywords.has(firstWord)) {
       errorResponse(
@@ -913,9 +911,7 @@ export async function handleDatabaseRoute(
   }
 
   // ── Table row operations: /api/database/tables/:table/rows ────────────
-  const rowsMatch = pathname.match(
-    /^\/api\/database\/tables\/([^/]+)\/rows$/,
-  );
+  const rowsMatch = pathname.match(/^\/api\/database\/tables\/([^/]+)\/rows$/);
   if (rowsMatch) {
     const tableNameDecoded = decodeURIComponent(rowsMatch[1]);
 

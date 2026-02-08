@@ -8,11 +8,7 @@
 
 import crypto from "node:crypto";
 import { describe, it, expect, beforeEach } from "vitest";
-import {
-  exportAgent,
-  importAgent,
-  AgentExportError,
-} from "./agent-export.js";
+import { exportAgent, importAgent, AgentExportError } from "./agent-export.js";
 import type {
   AgentRuntime,
   UUID,
@@ -166,7 +162,10 @@ interface MockDb {
   components: Component[];
   tasks: Task[];
   logs: Log[];
-  participants: Map<string, { entityIds: UUID[]; userStates: Map<string, string | null> }>;
+  participants: Map<
+    string,
+    { entityIds: UUID[]; userStates: Map<string, string | null> }
+  >;
 }
 
 function createMockDb(): MockDb {
@@ -278,7 +277,10 @@ function createMockAdapter(db: MockDb): IDatabaseAdapter<object> {
     },
     getParticipantsForEntity: async () => [],
     addParticipantsRoom: async (entityIds: UUID[], roomId: UUID) => {
-      const existing = db.participants.get(roomId) ?? { entityIds: [], userStates: new Map() };
+      const existing = db.participants.get(roomId) ?? {
+        entityIds: [],
+        userStates: new Map(),
+      };
       for (const eid of entityIds) {
         if (!existing.entityIds.includes(eid)) existing.entityIds.push(eid);
       }
@@ -291,7 +293,11 @@ function createMockAdapter(db: MockDb): IDatabaseAdapter<object> {
     getParticipantUserState: async (roomId: UUID, entityId: UUID) => {
       return db.participants.get(roomId)?.userStates.get(entityId) ?? null;
     },
-    setParticipantUserState: async (roomId: UUID, entityId: UUID, userState: "FOLLOWED" | "MUTED" | null) => {
+    setParticipantUserState: async (
+      roomId: UUID,
+      entityId: UUID,
+      userState: "FOLLOWED" | "MUTED" | null,
+    ) => {
       const existing = db.participants.get(roomId);
       if (existing) existing.userStates.set(entityId, userState);
     },
@@ -306,7 +312,11 @@ function createMockAdapter(db: MockDb): IDatabaseAdapter<object> {
     updateComponent: async () => {},
     deleteComponent: async () => {},
 
-    getMemories: async (params: { agentId?: UUID; tableName: string; count?: number }) => {
+    getMemories: async (params: {
+      agentId?: UUID;
+      tableName: string;
+      count?: number;
+    }) => {
       return db.memories.filter((m) => {
         if (params.agentId && m.agentId !== params.agentId) return false;
         const memType = (m as Record<string, unknown>).type;
@@ -362,7 +372,12 @@ function createMockAdapter(db: MockDb): IDatabaseAdapter<object> {
     updateTask: async () => {},
     deleteTask: async () => {},
 
-    log: async (params: { body: Record<string, unknown>; entityId: UUID; roomId: UUID; type: string }) => {
+    log: async (params: {
+      body: Record<string, unknown>;
+      entityId: UUID;
+      roomId: UUID;
+      type: string;
+    }) => {
       db.logs.push({
         id: uuid(),
         body: params.body,
@@ -433,7 +448,11 @@ function populateDb(db: MockDb): {
   const memories = [
     makeMemory({ roomId: room.id, entityId: entity.id }),
     makeMemory({ roomId: room.id, entityId: AGENT_ID }),
-    makeMemory({ roomId: room.id, entityId: entity.id, content: { text: "How are you?" } }),
+    makeMemory({
+      roomId: room.id,
+      entityId: entity.id,
+      content: { text: "How are you?" },
+    }),
   ];
   db.memories.push(...memories);
 
@@ -504,7 +523,10 @@ describe("agent-export", () => {
       expect(importedAgent?.name).toBe("TestAgent");
 
       // Verify secrets are preserved
-      const importedSettings = importedAgent?.settings as Record<string, Record<string, unknown>>;
+      const importedSettings = importedAgent?.settings as Record<
+        string,
+        Record<string, unknown>
+      >;
       expect(importedSettings?.secrets?.OPENAI_API_KEY).toBe("sk-test-12345");
 
       // Verify memories were imported
@@ -556,7 +578,11 @@ describe("agent-export", () => {
       targetDb.agents.set(AGENT_ID, makeAgent());
       const targetRuntime = createMockRuntime(targetDb);
 
-      const err = await importAgent(targetRuntime, fileBuffer, "wrong-password").catch((e: Error) => e);
+      const err = await importAgent(
+        targetRuntime,
+        fileBuffer,
+        "wrong-password",
+      ).catch((e: Error) => e);
       expect(err).toBeInstanceOf(AgentExportError);
       expect(err.message).toMatch(/password|decryption/i);
 
@@ -697,7 +723,9 @@ describe("agent-export", () => {
   describe("password validation", () => {
     it("rejects export with empty password", async () => {
       populateDb(sourceDb);
-      await expect(exportAgent(sourceRuntime, "")).rejects.toThrow(/password.*required/i);
+      await expect(exportAgent(sourceRuntime, "")).rejects.toThrow(
+        /password.*required/i,
+      );
     });
 
     it("rejects import with empty password", async () => {
@@ -708,9 +736,9 @@ describe("agent-export", () => {
       targetDb.agents.set(AGENT_ID, makeAgent());
       const targetRuntime = createMockRuntime(targetDb);
 
-      await expect(
-        importAgent(targetRuntime, fileBuffer, ""),
-      ).rejects.toThrow(/password.*required/i);
+      await expect(importAgent(targetRuntime, fileBuffer, "")).rejects.toThrow(
+        /password.*required/i,
+      );
     });
   });
 
@@ -769,9 +797,9 @@ describe("agent-export", () => {
         character: { name: "Test" },
       } as unknown as AgentRuntime;
 
-      await expect(
-        exportAgent(noAdapterRuntime, "pass"),
-      ).rejects.toThrow(/database adapter/i);
+      await expect(exportAgent(noAdapterRuntime, "pass")).rejects.toThrow(
+        /database adapter/i,
+      );
     });
 
     it("throws on import when adapter is missing", async () => {
@@ -856,17 +884,29 @@ describe("agent-export", () => {
       targetDb.agents.set(AGENT_ID, makeAgent());
       const targetRuntime = createMockRuntime(targetDb);
 
-      const result = await importAgent(targetRuntime, fileBuffer, "multi-world");
+      const result = await importAgent(
+        targetRuntime,
+        fileBuffer,
+        "multi-world",
+      );
       expect(result.counts.worlds).toBe(2);
       expect(result.counts.rooms).toBe(3);
 
       // Verify world names survived
-      const worldNames = Array.from(targetDb.worlds.values()).map((w) => w.name).sort();
+      const worldNames = Array.from(targetDb.worlds.values())
+        .map((w) => w.name)
+        .sort();
       expect(worldNames).toEqual(["World One", "World Two"]);
 
       // Verify room names survived
-      const roomNames = Array.from(targetDb.rooms.values()).map((r) => r.name).sort();
-      expect(roomNames).toEqual(["Room in W1", "Room in W2", "Second Room in W2"]);
+      const roomNames = Array.from(targetDb.rooms.values())
+        .map((r) => r.name)
+        .sort();
+      expect(roomNames).toEqual([
+        "Room in W1",
+        "Room in W2",
+        "Second Room in W2",
+      ]);
 
       // Verify rooms reference their new world IDs (not old ones)
       for (const room of targetDb.rooms.values()) {
@@ -890,13 +930,20 @@ describe("agent-export", () => {
       });
 
       sourceDb.memories.push(
-        makeMemory({ roomId: orphanRoom.id, content: { text: "orphan message" } }),
+        makeMemory({
+          roomId: orphanRoom.id,
+          content: { text: "orphan message" },
+        }),
       );
 
       const fileBuffer = await exportAgent(sourceRuntime, "orphan-room");
       const targetDb = createMockDb();
       targetDb.agents.set(AGENT_ID, makeAgent());
-      const result = await importAgent(createMockRuntime(targetDb), fileBuffer, "orphan-room");
+      const result = await importAgent(
+        createMockRuntime(targetDb),
+        fileBuffer,
+        "orphan-room",
+      );
 
       expect(result.counts.rooms).toBe(1);
       expect(result.counts.worlds).toBe(0);
@@ -931,7 +978,11 @@ describe("agent-export", () => {
       const fileBuffer = await exportAgent(sourceRuntime, "state-test");
       const targetDb = createMockDb();
       targetDb.agents.set(AGENT_ID, makeAgent());
-      const result = await importAgent(createMockRuntime(targetDb), fileBuffer, "state-test");
+      const result = await importAgent(
+        createMockRuntime(targetDb),
+        fileBuffer,
+        "state-test",
+      );
 
       expect(result.counts.participants).toBe(3);
 
@@ -987,7 +1038,11 @@ describe("agent-export", () => {
       const fileBuffer = await exportAgent(sourceRuntime, "comp-remap");
       const targetDb = createMockDb();
       targetDb.agents.set(AGENT_ID, makeAgent());
-      const result = await importAgent(createMockRuntime(targetDb), fileBuffer, "comp-remap");
+      const result = await importAgent(
+        createMockRuntime(targetDb),
+        fileBuffer,
+        "comp-remap",
+      );
 
       expect(result.counts.components).toBe(1);
       const importedComp = targetDb.components[0];
@@ -1000,10 +1055,12 @@ describe("agent-export", () => {
       expect(importedComp.sourceEntityId).not.toBe(originalSourceEntityId);
 
       // But they should reference valid remapped IDs that exist in the target DB
-      expect(targetDb.entities.has((importedComp.entityId ?? ""))).toBe(true);
-      expect(targetDb.rooms.has((importedComp.roomId ?? ""))).toBe(true);
-      expect(targetDb.worlds.has((importedComp.worldId ?? ""))).toBe(true);
-      expect(targetDb.entities.has((importedComp.sourceEntityId ?? ""))).toBe(true);
+      expect(targetDb.entities.has(importedComp.entityId ?? "")).toBe(true);
+      expect(targetDb.rooms.has(importedComp.roomId ?? "")).toBe(true);
+      expect(targetDb.worlds.has(importedComp.worldId ?? "")).toBe(true);
+      expect(targetDb.entities.has(importedComp.sourceEntityId ?? "")).toBe(
+        true,
+      );
     });
   });
 
@@ -1018,27 +1075,69 @@ describe("agent-export", () => {
       });
 
       // Create memories with different metadata types
-      const msgMem = makeMemory({ roomId: room.id, metadata: { type: "message" }, content: { text: "msg" } });
-      const docMem = makeMemory({ roomId: room.id, metadata: { type: "document" }, content: { text: "doc" } });
-      const fragMem = makeMemory({ roomId: room.id, metadata: { type: "fragment" }, content: { text: "frag" } });
-      const descMem = makeMemory({ roomId: room.id, metadata: { type: "description" }, content: { text: "desc" } });
-      const customMem = makeMemory({ roomId: room.id, metadata: { type: "custom" }, content: { text: "custom" } });
+      const msgMem = makeMemory({
+        roomId: room.id,
+        metadata: { type: "message" },
+        content: { text: "msg" },
+      });
+      const docMem = makeMemory({
+        roomId: room.id,
+        metadata: { type: "document" },
+        content: { text: "doc" },
+      });
+      const fragMem = makeMemory({
+        roomId: room.id,
+        metadata: { type: "fragment" },
+        content: { text: "frag" },
+      });
+      const descMem = makeMemory({
+        roomId: room.id,
+        metadata: { type: "description" },
+        content: { text: "desc" },
+      });
+      const customMem = makeMemory({
+        roomId: room.id,
+        metadata: { type: "custom" },
+        content: { text: "custom" },
+      });
 
       // Memory with no metadata type but a top-level type field (fallback path)
-      const fallbackMem = { ...makeMemory({ roomId: room.id, content: { text: "fallback" } }), metadata: undefined, type: "facts" } as unknown as Memory;
+      const fallbackMem = {
+        ...makeMemory({ roomId: room.id, content: { text: "fallback" } }),
+        metadata: undefined,
+        type: "facts",
+      } as unknown as Memory;
 
-      sourceDb.memories.push(msgMem, docMem, fragMem, descMem, customMem, fallbackMem);
+      sourceDb.memories.push(
+        msgMem,
+        docMem,
+        fragMem,
+        descMem,
+        customMem,
+        fallbackMem,
+      );
 
       const fileBuffer = await exportAgent(sourceRuntime, "mem-types");
       const targetDb = createMockDb();
       targetDb.agents.set(AGENT_ID, makeAgent());
-      const result = await importAgent(createMockRuntime(targetDb), fileBuffer, "mem-types");
+      const result = await importAgent(
+        createMockRuntime(targetDb),
+        fileBuffer,
+        "mem-types",
+      );
 
       expect(result.counts.memories).toBe(6);
 
       // Verify all content survived
       const texts = targetDb.memories.map((m) => m.content?.text).sort();
-      expect(texts).toEqual(["custom", "desc", "doc", "fallback", "frag", "msg"]);
+      expect(texts).toEqual([
+        "custom",
+        "desc",
+        "doc",
+        "fallback",
+        "frag",
+        "msg",
+      ]);
     });
   });
 
@@ -1057,7 +1156,9 @@ describe("agent-export", () => {
         roomId: room.id,
         content: { text: "embedded" },
       });
-      (memWithEmbedding as Record<string, unknown>).embedding = new Array(1536).fill(0.5);
+      (memWithEmbedding as Record<string, unknown>).embedding = new Array(
+        1536,
+      ).fill(0.5);
       sourceDb.memories.push(memWithEmbedding);
 
       const fileBuffer = await exportAgent(sourceRuntime, "embed-test");
@@ -1088,11 +1189,17 @@ describe("agent-export", () => {
         userStates: new Map(),
       });
 
-      sourceDb.relationships.push(makeRelationship({
-        targetEntityId: entity.id,
-        tags: ["friend", "colleague", "trusted"],
-        metadata: { trust: 0.95, since: "2024-01-01", notes: "Met at conference" },
-      }));
+      sourceDb.relationships.push(
+        makeRelationship({
+          targetEntityId: entity.id,
+          tags: ["friend", "colleague", "trusted"],
+          metadata: {
+            trust: 0.95,
+            since: "2024-01-01",
+            notes: "Met at conference",
+          },
+        }),
+      );
 
       const fileBuffer = await exportAgent(sourceRuntime, "rel-data");
       const targetDb = createMockDb();
@@ -1102,19 +1209,23 @@ describe("agent-export", () => {
       expect(targetDb.relationships.length).toBe(1);
       const rel = targetDb.relationships[0];
       expect(rel.tags).toEqual(["friend", "colleague", "trusted"]);
-      expect(rel.metadata).toEqual({ trust: 0.95, since: "2024-01-01", notes: "Met at conference" });
+      expect(rel.metadata).toEqual({
+        trust: 0.95,
+        since: "2024-01-01",
+        notes: "Met at conference",
+      });
     });
   });
 
   describe("agent not found in database", () => {
     it("throws AgentExportError when the agent record is missing", async () => {
       // Don't add the agent to the DB — it's empty
-      await expect(
-        exportAgent(sourceRuntime, "pass"),
-      ).rejects.toThrow(AgentExportError);
-      await expect(
-        exportAgent(sourceRuntime, "pass"),
-      ).rejects.toThrow(/not found/i);
+      await expect(exportAgent(sourceRuntime, "pass")).rejects.toThrow(
+        AgentExportError,
+      );
+      await expect(exportAgent(sourceRuntime, "pass")).rejects.toThrow(
+        /not found/i,
+      );
     });
   });
 
@@ -1125,28 +1236,39 @@ describe("agent-export", () => {
       const nodeCrypto = await import("node:crypto");
 
       const badPayload = { version: 1, exportedAt: "now" }; // missing most fields
-      const compressed = gzipSync(Buffer.from(JSON.stringify(badPayload), "utf-8"));
+      const compressed = gzipSync(
+        Buffer.from(JSON.stringify(badPayload), "utf-8"),
+      );
 
       const password = "schema-test";
       const salt = nodeCrypto.randomBytes(32);
       const iv = nodeCrypto.randomBytes(12);
       const key = nodeCrypto.pbkdf2Sync(password, salt, 600_000, 32, "sha256");
       const cipher = nodeCrypto.createCipheriv("aes-256-gcm", key, iv);
-      const ciphertext = Buffer.concat([cipher.update(compressed), cipher.final()]);
+      const ciphertext = Buffer.concat([
+        cipher.update(compressed),
+        cipher.final(),
+      ]);
       const tag = cipher.getAuthTag();
 
       const iterBuf = Buffer.alloc(4);
       iterBuf.writeUInt32BE(600_000, 0);
       const fileBuffer = Buffer.concat([
         Buffer.from("ELIZA_AGENT_V1\n", "utf-8"),
-        iterBuf, salt, iv, tag, ciphertext,
+        iterBuf,
+        salt,
+        iv,
+        tag,
+        ciphertext,
       ]);
 
       const targetDb = createMockDb();
       targetDb.agents.set(AGENT_ID, makeAgent());
       const targetRuntime = createMockRuntime(targetDb);
 
-      const err = await importAgent(targetRuntime, fileBuffer, password).catch((e: Error) => e);
+      const err = await importAgent(targetRuntime, fileBuffer, password).catch(
+        (e: Error) => e,
+      );
       expect(err).toBeInstanceOf(AgentExportError);
       expect(err.message).toMatch(/schema validation failed/i);
     });
@@ -1161,7 +1283,11 @@ describe("agent-export", () => {
 
       const targetDb = createMockDb();
       targetDb.agents.set(AGENT_ID, makeAgent());
-      const result = await importAgent(createMockRuntime(targetDb), fileBuffer, unicodePassword);
+      const result = await importAgent(
+        createMockRuntime(targetDb),
+        fileBuffer,
+        unicodePassword,
+      );
       expect(result.success).toBe(true);
     });
 
@@ -1174,17 +1300,27 @@ describe("agent-export", () => {
         userStates: new Map(),
       });
 
-      sourceDb.memories.push(makeMemory({
-        roomId: room.id,
-        content: { text: "Hello \u4e16\u754c! \ud83c\udf0d \u00e9\u00e0\u00fc\u00f1" }, // Hello 世界! 🌍 éàüñ
-      }));
+      sourceDb.memories.push(
+        makeMemory({
+          roomId: room.id,
+          content: {
+            text: "Hello \u4e16\u754c! \ud83c\udf0d \u00e9\u00e0\u00fc\u00f1",
+          }, // Hello 世界! 🌍 éàüñ
+        }),
+      );
 
       const fileBuffer = await exportAgent(sourceRuntime, "unicode-test");
       const targetDb = createMockDb();
       targetDb.agents.set(AGENT_ID, makeAgent());
-      await importAgent(createMockRuntime(targetDb), fileBuffer, "unicode-test");
+      await importAgent(
+        createMockRuntime(targetDb),
+        fileBuffer,
+        "unicode-test",
+      );
 
-      expect(targetDb.memories[0].content?.text).toBe("Hello \u4e16\u754c! \ud83c\udf0d \u00e9\u00e0\u00fc\u00f1");
+      expect(targetDb.memories[0].content?.text).toBe(
+        "Hello \u4e16\u754c! \ud83c\udf0d \u00e9\u00e0\u00fc\u00f1",
+      );
     });
   });
 
@@ -1232,18 +1368,30 @@ describe("agent-export", () => {
       // Both should be importable with their respective passwords
       const db1 = createMockDb();
       db1.agents.set(AGENT_ID, makeAgent());
-      const r1 = await importAgent(createMockRuntime(db1), file1, "concurrent-1");
+      const r1 = await importAgent(
+        createMockRuntime(db1),
+        file1,
+        "concurrent-1",
+      );
       expect(r1.success).toBe(true);
 
       const db2 = createMockDb();
       db2.agents.set(AGENT_ID, makeAgent());
-      const r2 = await importAgent(createMockRuntime(db2), file2, "concurrent-2");
+      const r2 = await importAgent(
+        createMockRuntime(db2),
+        file2,
+        "concurrent-2",
+      );
       expect(r2.success).toBe(true);
 
       // Cross-password should fail
       const db3 = createMockDb();
       db3.agents.set(AGENT_ID, makeAgent());
-      const err = await importAgent(createMockRuntime(db3), file1, "concurrent-2").catch((e: Error) => e);
+      const err = await importAgent(
+        createMockRuntime(db3),
+        file1,
+        "concurrent-2",
+      ).catch((e: Error) => e);
       expect(err).toBeInstanceOf(AgentExportError);
     });
   });
@@ -1301,14 +1449,24 @@ describe("agent-export", () => {
       const fileBuffer = await exportAgent(sourceRuntime, "deep-inspect");
       const targetDb = createMockDb();
       targetDb.agents.set(AGENT_ID, makeAgent());
-      const result = await importAgent(createMockRuntime(targetDb), fileBuffer, "deep-inspect");
+      const result = await importAgent(
+        createMockRuntime(targetDb),
+        fileBuffer,
+        "deep-inspect",
+      );
 
       const imported = targetDb.agents.get(result.agentId);
       if (!imported) throw new Error("Expected imported agent to exist");
       expect(imported.name).toBe("RichAgent");
       expect(imported.username).toBe("richagent");
-      expect(imported.bio).toEqual(["Line 1 of bio", "Line 2 of bio", "Line 3"]);
-      expect(imported.system).toBe("You are a rich test agent with complex configuration.");
+      expect(imported.bio).toEqual([
+        "Line 1 of bio",
+        "Line 2 of bio",
+        "Line 3",
+      ]);
+      expect(imported.system).toBe(
+        "You are a rich test agent with complex configuration.",
+      );
       expect(imported.topics).toEqual(["finance", "technology", "art"]);
       expect(imported.adjectives).toEqual(["sophisticated", "knowledgeable"]);
       expect(imported.style).toEqual({
@@ -1332,7 +1490,6 @@ describe("agent-export", () => {
     });
   });
 
-
   describe("version check on import", () => {
     it("rejects a file with a future version number", async () => {
       // Craft an encrypted file with version:99
@@ -1354,26 +1511,39 @@ describe("agent-export", () => {
         tasks: [],
         logs: [],
       };
-      const compressed = gzipSync(Buffer.from(JSON.stringify(futurePayload), "utf-8"));
+      const compressed = gzipSync(
+        Buffer.from(JSON.stringify(futurePayload), "utf-8"),
+      );
 
       const password = "version-test";
       const salt = nodeCrypto.randomBytes(32);
       const iv = nodeCrypto.randomBytes(12);
       const key = nodeCrypto.pbkdf2Sync(password, salt, 600_000, 32, "sha256");
       const cipher = nodeCrypto.createCipheriv("aes-256-gcm", key, iv);
-      const ciphertext = Buffer.concat([cipher.update(compressed), cipher.final()]);
+      const ciphertext = Buffer.concat([
+        cipher.update(compressed),
+        cipher.final(),
+      ]);
       const tag = cipher.getAuthTag();
 
       const iterBuf = Buffer.alloc(4);
       iterBuf.writeUInt32BE(600_000, 0);
       const fileBuffer = Buffer.concat([
         Buffer.from("ELIZA_AGENT_V1\n", "utf-8"),
-        iterBuf, salt, iv, tag, ciphertext,
+        iterBuf,
+        salt,
+        iv,
+        tag,
+        ciphertext,
       ]);
 
       const targetDb = createMockDb();
       targetDb.agents.set(AGENT_ID, makeAgent());
-      const err = await importAgent(createMockRuntime(targetDb), fileBuffer, password).catch((e: Error) => e);
+      const err = await importAgent(
+        createMockRuntime(targetDb),
+        fileBuffer,
+        password,
+      ).catch((e: Error) => e);
       expect(err).toBeInstanceOf(AgentExportError);
       expect(err.message).toMatch(/unsupported export version 99/i);
       expect(err.message).toMatch(/update your software/i);
@@ -1400,26 +1570,39 @@ describe("agent-export", () => {
         tasks: [],
         logs: [],
       };
-      const compressed = gzipSync(Buffer.from(JSON.stringify(badPayload), "utf-8"));
+      const compressed = gzipSync(
+        Buffer.from(JSON.stringify(badPayload), "utf-8"),
+      );
 
       const password = "schema-id-test";
       const salt = nodeCrypto.randomBytes(32);
       const iv = nodeCrypto.randomBytes(12);
       const key = nodeCrypto.pbkdf2Sync(password, salt, 600_000, 32, "sha256");
       const cipher = nodeCrypto.createCipheriv("aes-256-gcm", key, iv);
-      const ciphertext = Buffer.concat([cipher.update(compressed), cipher.final()]);
+      const ciphertext = Buffer.concat([
+        cipher.update(compressed),
+        cipher.final(),
+      ]);
       const tag = cipher.getAuthTag();
 
       const iterBuf = Buffer.alloc(4);
       iterBuf.writeUInt32BE(600_000, 0);
       const fileBuffer = Buffer.concat([
         Buffer.from("ELIZA_AGENT_V1\n", "utf-8"),
-        iterBuf, salt, iv, tag, ciphertext,
+        iterBuf,
+        salt,
+        iv,
+        tag,
+        ciphertext,
       ]);
 
       const targetDb = createMockDb();
       targetDb.agents.set(AGENT_ID, makeAgent());
-      const err = await importAgent(createMockRuntime(targetDb), fileBuffer, password).catch((e: Error) => e);
+      const err = await importAgent(
+        createMockRuntime(targetDb),
+        fileBuffer,
+        password,
+      ).catch((e: Error) => e);
       expect(err).toBeInstanceOf(AgentExportError);
       expect(err.message).toMatch(/schema validation failed/i);
     });
@@ -1444,11 +1627,13 @@ describe("agent-export", () => {
         },
       } as unknown as AgentRuntime;
 
-      const err = await importAgent(failRuntime, fileBuffer, "fail-create").catch((e: Error) => e);
+      const err = await importAgent(
+        failRuntime,
+        fileBuffer,
+        "fail-create",
+      ).catch((e: Error) => e);
       expect(err).toBeInstanceOf(AgentExportError);
       expect(err.message).toMatch(/failed to create agent/i);
     });
   });
-
 });
-

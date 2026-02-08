@@ -22,7 +22,11 @@ const BRIDGE_PORT = Number(process.env.BRIDGE_PORT ?? "18790");
  */
 let agentRuntime: {
   processMessage: (text: string, roomId: string) => Promise<string>;
-  processMessageStream: (text: string, roomId: string, onChunk: (chunk: string) => void) => Promise<string>;
+  processMessageStream: (
+    text: string,
+    roomId: string,
+    onChunk: (chunk: string) => void,
+  ) => Promise<string>;
   getMemories: () => Array<Record<string, unknown>>;
   getConfig: () => Record<string, unknown>;
 } | null = null;
@@ -123,44 +127,75 @@ async function initRuntime(): Promise<void> {
     });
 
     agentRuntime = {
-      processMessage: async (text: string, _roomId: string): Promise<string> => {
+      processMessage: async (
+        text: string,
+        _roomId: string,
+      ): Promise<string> => {
         const message = createMessageMemory({
           id: crypto.randomUUID() as ReturnType<typeof stringToUuid>,
           entityId: userId,
           roomId,
-          content: { text, source: "cloud-bridge", channelType: ChannelType.DM },
+          content: {
+            text,
+            source: "cloud-bridge",
+            channelType: ChannelType.DM,
+          },
         });
 
         let responseText = "";
-        await runtime.messageService?.handleMessage(runtime, message, async (content) => {
-          if (content?.text) responseText += content.text;
-          return [];
-        });
+        await runtime.messageService?.handleMessage(
+          runtime,
+          message,
+          async (content) => {
+            if (content?.text) responseText += content.text;
+            return [];
+          },
+        );
 
         state.memories.push({ role: "user", text, timestamp: Date.now() });
-        state.memories.push({ role: "assistant", text: responseText, timestamp: Date.now() });
+        state.memories.push({
+          role: "assistant",
+          text: responseText,
+          timestamp: Date.now(),
+        });
 
         return responseText || "(no response)";
       },
-      processMessageStream: async (text: string, _roomId: string, onChunk: (chunk: string) => void): Promise<string> => {
+      processMessageStream: async (
+        text: string,
+        _roomId: string,
+        onChunk: (chunk: string) => void,
+      ): Promise<string> => {
         const message = createMessageMemory({
           id: crypto.randomUUID() as ReturnType<typeof stringToUuid>,
           entityId: userId,
           roomId,
-          content: { text, source: "cloud-bridge", channelType: ChannelType.DM },
+          content: {
+            text,
+            source: "cloud-bridge",
+            channelType: ChannelType.DM,
+          },
         });
 
         let responseText = "";
-        await runtime.messageService?.handleMessage(runtime, message, async (content) => {
-          if (content?.text) {
-            responseText += content.text;
-            onChunk(content.text);
-          }
-          return [];
-        });
+        await runtime.messageService?.handleMessage(
+          runtime,
+          message,
+          async (content) => {
+            if (content?.text) {
+              responseText += content.text;
+              onChunk(content.text);
+            }
+            return [];
+          },
+        );
 
         state.memories.push({ role: "user", text, timestamp: Date.now() });
-        state.memories.push({ role: "assistant", text: responseText, timestamp: Date.now() });
+        state.memories.push({
+          role: "assistant",
+          text: responseText,
+          timestamp: Date.now(),
+        });
 
         return responseText || "(no response)";
       },
@@ -171,19 +206,33 @@ async function initRuntime(): Promise<void> {
     console.log("[cloud-agent] ElizaOS runtime initialized with real agent");
   } else {
     // Fallback: no ElizaOS installed — echo mode for protocol testing
-    console.warn("[cloud-agent] @elizaos/core not available, running in echo mode");
+    console.warn(
+      "[cloud-agent] @elizaos/core not available, running in echo mode",
+    );
     agentRuntime = {
       processMessage: async (text: string): Promise<string> => {
         state.memories.push({ role: "user", text, timestamp: Date.now() });
         const reply = `[echo] ${text}`;
-        state.memories.push({ role: "assistant", text: reply, timestamp: Date.now() });
+        state.memories.push({
+          role: "assistant",
+          text: reply,
+          timestamp: Date.now(),
+        });
         return reply;
       },
-      processMessageStream: async (text: string, _roomId: string, onChunk: (chunk: string) => void): Promise<string> => {
+      processMessageStream: async (
+        text: string,
+        _roomId: string,
+        onChunk: (chunk: string) => void,
+      ): Promise<string> => {
         state.memories.push({ role: "user", text, timestamp: Date.now() });
         const reply = `[echo] ${text}`;
         onChunk(reply);
-        state.memories.push({ role: "assistant", text: reply, timestamp: Date.now() });
+        state.memories.push({
+          role: "assistant",
+          text: reply,
+          timestamp: Date.now(),
+        });
         return reply;
       },
       getMemories: () => state.memories,
@@ -197,18 +246,22 @@ async function initRuntime(): Promise<void> {
 const healthServer = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({
-      status: agentRuntime ? "healthy" : "initializing",
-      uptime: process.uptime(),
-      startedAt: state.startedAt,
-      memoryUsage: process.memoryUsage().rss,
-      runtimeReady: agentRuntime !== null,
-    }));
+    res.end(
+      JSON.stringify({
+        status: agentRuntime ? "healthy" : "initializing",
+        uptime: process.uptime(),
+        startedAt: state.startedAt,
+        memoryUsage: process.memoryUsage().rss,
+        runtimeReady: agentRuntime !== null,
+      }),
+    );
     return;
   }
   if (req.method === "GET" && req.url === "/") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ service: "elizaos-cloud-agent", status: "running" }));
+    res.end(
+      JSON.stringify({ service: "elizaos-cloud-agent", status: "running" }),
+    );
     return;
   }
   res.writeHead(404);
@@ -235,12 +288,14 @@ const bridgeServer = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && req.url === "/api/snapshot") {
     res.writeHead(200);
-    res.end(JSON.stringify({
-      memories: state.memories,
-      config: state.config,
-      workspaceFiles: state.workspaceFiles,
-      timestamp: new Date().toISOString(),
-    }));
+    res.end(
+      JSON.stringify({
+        memories: state.memories,
+        config: state.config,
+        workspaceFiles: state.workspaceFiles,
+        timestamp: new Date().toISOString(),
+      }),
+    );
     return;
   }
 
@@ -284,7 +339,7 @@ const bridgeServer = http.createServer(async (req, res) => {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
-      "Connection": "keep-alive",
+      Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     });
 
@@ -324,34 +379,66 @@ const bridgeServer = http.createServer(async (req, res) => {
     if (rpc.method === "message.send") {
       if (!agentRuntime) {
         res.writeHead(503);
-        res.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, error: { code: -32000, message: "Agent runtime not ready" } }));
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: rpc.id,
+            error: { code: -32000, message: "Agent runtime not ready" },
+          }),
+        );
         return;
       }
       const text = (rpc.params?.text as string) ?? "";
       const roomId = (rpc.params?.roomId as string) ?? "default";
       const responseText = await agentRuntime.processMessage(text, roomId);
       res.writeHead(200);
-      res.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, result: { text: responseText, metadata: { timestamp: Date.now() } } }));
+      res.end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: rpc.id,
+          result: { text: responseText, metadata: { timestamp: Date.now() } },
+        }),
+      );
       return;
     }
 
     if (rpc.method === "status.get") {
       res.writeHead(200);
-      res.end(JSON.stringify({
-        jsonrpc: "2.0", id: rpc.id,
-        result: { status: agentRuntime ? "running" : "initializing", uptime: process.uptime(), memoriesCount: state.memories.length, startedAt: state.startedAt },
-      }));
+      res.end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: rpc.id,
+          result: {
+            status: agentRuntime ? "running" : "initializing",
+            uptime: process.uptime(),
+            memoriesCount: state.memories.length,
+            startedAt: state.startedAt,
+          },
+        }),
+      );
       return;
     }
 
     if (rpc.method === "heartbeat") {
       res.writeHead(200);
-      res.end(JSON.stringify({ jsonrpc: "2.0", method: "heartbeat.ack", params: { timestamp: Date.now() } }));
+      res.end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          method: "heartbeat.ack",
+          params: { timestamp: Date.now() },
+        }),
+      );
       return;
     }
 
     res.writeHead(200);
-    res.end(JSON.stringify({ jsonrpc: "2.0", id: rpc.id, error: { code: -32601, message: `Method not found: ${rpc.method}` } }));
+    res.end(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: rpc.id,
+        error: { code: -32601, message: `Method not found: ${rpc.method}` },
+      }),
+    );
     return;
   }
 
@@ -375,9 +462,11 @@ process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);
 
 // Initialize runtime asynchronously — bridge returns 503 until ready
-initRuntime().then(() => {
-  console.log("[cloud-agent] Ready");
-}).catch((err) => {
-  console.error("[cloud-agent] Runtime init failed:", err);
-  // Don't exit — health/bridge still work for diagnostics
-});
+initRuntime()
+  .then(() => {
+    console.log("[cloud-agent] Ready");
+  })
+  .catch((err) => {
+    console.error("[cloud-agent] Runtime init failed:", err);
+    // Don't exit — health/bridge still work for diagnostics
+  });

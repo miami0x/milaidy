@@ -83,7 +83,8 @@ function findCatalogPaths(): string[] {
   if (envPath) return [envPath];
 
   // Walk up from this file to find the package root (contains package.json)
-  let dir = import.meta.dirname ?? path.dirname(new URL(import.meta.url).pathname);
+  let dir =
+    import.meta.dirname ?? path.dirname(new URL(import.meta.url).pathname);
   for (let i = 0; i < 5; i++) {
     paths.push(path.join(dir, "skills", ".cache", "catalog.json"));
     const parent = path.dirname(dir);
@@ -203,8 +204,7 @@ export async function searchCatalogSkills(
   }
 
   scored.sort(
-    (a, b) =>
-      b.score - a.score || b.s.stats.downloads - a.s.stats.downloads,
+    (a, b) => b.score - a.score || b.s.stats.downloads - a.s.stats.downloads,
   );
   const max = scored[0]?.score || 1;
 
@@ -221,15 +221,12 @@ export async function searchCatalogSkills(
 }
 
 /** Get top/trending skills sorted by recent downloads. */
-export async function getTrendingSkills(
-  limit = 30,
-): Promise<CatalogSkill[]> {
+export async function getTrendingSkills(limit = 30): Promise<CatalogSkill[]> {
   const skills = await getCatalogSkills();
   return [...skills]
     .sort(
       (a, b) =>
-        b.stats.downloads - a.stats.downloads ||
-        b.updatedAt - a.updatedAt,
+        b.stats.downloads - a.stats.downloads || b.updatedAt - a.updatedAt,
     )
     .slice(0, limit);
 }

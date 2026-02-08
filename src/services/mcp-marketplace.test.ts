@@ -108,18 +108,26 @@ describe("generateMcpConfigFromServerDetails", () => {
           type: "streamable-http",
           url: "https://api.github.com/mcp",
           headers: [
-            { name: "Authorization", description: "Bearer token", isRequired: true, isSecret: true },
-            { name: "X-Custom", description: "Optional header", isRequired: false },
+            {
+              name: "Authorization",
+              description: "Bearer token",
+              isRequired: true,
+              isSecret: true,
+            },
+            {
+              name: "X-Custom",
+              description: "Optional header",
+              isRequired: false,
+            },
           ],
         },
       ],
     };
 
-    const config = generateMcpConfigFromServerDetails(
-      server,
-      undefined,
-      { Authorization: "Bearer ghp_test123", "X-Custom": "value" },
-    );
+    const config = generateMcpConfigFromServerDetails(server, undefined, {
+      Authorization: "Bearer ghp_test123",
+      "X-Custom": "value",
+    });
 
     expect(config).not.toBeNull();
     expect(config!.type).toBe("streamable-http");
@@ -158,17 +166,26 @@ describe("generateMcpConfigFromServerDetails", () => {
           registryType: "npm",
           identifier: "@modelcontextprotocol/server-github",
           environmentVariables: [
-            { name: "GITHUB_TOKEN", description: "GitHub personal access token", isRequired: true, isSecret: true },
-            { name: "GITHUB_ORG", description: "Optional org filter", isRequired: false },
+            {
+              name: "GITHUB_TOKEN",
+              description: "GitHub personal access token",
+              isRequired: true,
+              isSecret: true,
+            },
+            {
+              name: "GITHUB_ORG",
+              description: "Optional org filter",
+              isRequired: false,
+            },
           ],
         },
       ],
     };
 
-    const config = generateMcpConfigFromServerDetails(
-      server,
-      { GITHUB_TOKEN: "ghp_abc123", GITHUB_ORG: "my-org" },
-    );
+    const config = generateMcpConfigFromServerDetails(server, {
+      GITHUB_TOKEN: "ghp_abc123",
+      GITHUB_ORG: "my-org",
+    });
 
     expect(config).not.toBeNull();
     expect(config!.type).toBe("stdio");
@@ -242,15 +259,19 @@ describe("generateMcpConfigFromServerDetails", () => {
       ],
     };
 
-    const config = generateMcpConfigFromServerDetails(
-      server,
-      { PG_CONNECTION_STRING: "postgres://localhost:5432/db" },
-    );
+    const config = generateMcpConfigFromServerDetails(server, {
+      PG_CONNECTION_STRING: "postgres://localhost:5432/db",
+    });
 
     expect(config).not.toBeNull();
     expect(config!.type).toBe("stdio");
     expect(config!.command).toBe("docker");
-    expect(config!.args).toEqual(["run", "-i", "--rm", "mcp/server-postgres:latest"]);
+    expect(config!.args).toEqual([
+      "run",
+      "-i",
+      "--rm",
+      "mcp/server-postgres:latest",
+    ]);
     expect(config!.env).toEqual({
       PG_CONNECTION_STRING: "postgres://localhost:5432/db",
     });
@@ -301,10 +322,10 @@ describe("generateMcpConfigFromServerDetails", () => {
     };
 
     // Only provide one value; empty record keys are included by the service
-    const config = generateMcpConfigFromServerDetails(
-      server,
-      { REQUIRED_KEY: "val", OPTIONAL_KEY: "" },
-    );
+    const config = generateMcpConfigFromServerDetails(server, {
+      REQUIRED_KEY: "val",
+      OPTIONAL_KEY: "",
+    });
 
     expect(config).not.toBeNull();
     expect(config!.env).toBeDefined();

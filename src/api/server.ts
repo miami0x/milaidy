@@ -62,7 +62,8 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isValidUuid(value: string): boolean {
   return UUID_RE.test(value);
@@ -145,14 +146,17 @@ interface GoalDataServiceLike {
     tags?: string[];
   }): Promise<GoalDataLike[]>;
   getGoal(goalId: UUID): Promise<GoalDataLike | null>;
-  updateGoal(goalId: UUID, updates: {
-    name?: string;
-    description?: string;
-    isCompleted?: boolean;
-    completedAt?: Date;
-    metadata?: Record<string, unknown>;
-    tags?: string[];
-  }): Promise<boolean>;
+  updateGoal(
+    goalId: UUID,
+    updates: {
+      name?: string;
+      description?: string;
+      isCompleted?: boolean;
+      completedAt?: Date;
+      metadata?: Record<string, unknown>;
+      tags?: string[];
+    },
+  ): Promise<boolean>;
 }
 
 interface TodoDataServiceLike {
@@ -181,26 +185,33 @@ interface TodoDataServiceLike {
     tags?: string[];
     limit?: number;
   }): Promise<TodoDataLike[]>;
-  updateTodo(todoId: UUID, updates: {
-    name?: string;
-    description?: string;
-    priority?: number;
-    isUrgent?: boolean;
-    isCompleted?: boolean;
-    dueDate?: Date;
-    completedAt?: Date;
-    metadata?: Record<string, unknown>;
-  }): Promise<boolean>;
+  updateTodo(
+    todoId: UUID,
+    updates: {
+      name?: string;
+      description?: string;
+      priority?: number;
+      isUrgent?: boolean;
+      isCompleted?: boolean;
+      dueDate?: Date;
+      completedAt?: Date;
+      metadata?: Record<string, unknown>;
+    },
+  ): Promise<boolean>;
 }
 
 interface GoalDataServiceWrapperLike {
   getDataService(): GoalDataServiceLike | null;
 }
 
-async function getGoalDataService(runtime: AgentRuntime | null): Promise<GoalDataServiceLike | null> {
+async function getGoalDataService(
+  runtime: AgentRuntime | null,
+): Promise<GoalDataServiceLike | null> {
   if (!runtime) return null;
 
-  const wrapper = runtime.getService("GOAL_DATA") as GoalDataServiceWrapperLike | null;
+  const wrapper = runtime.getService(
+    "GOAL_DATA",
+  ) as GoalDataServiceWrapperLike | null;
   if (wrapper?.getDataService) {
     const svc = wrapper.getDataService();
     if (svc) return svc;
@@ -208,20 +219,30 @@ async function getGoalDataService(runtime: AgentRuntime | null): Promise<GoalDat
 
   try {
     const { createGoalDataService } = await import("@elizaos/plugin-goals");
-    return createGoalDataService(runtime as unknown as import("@elizaos/core").IAgentRuntime) as GoalDataServiceLike;
+    return createGoalDataService(
+      runtime as unknown as import("@elizaos/core").IAgentRuntime,
+    ) as GoalDataServiceLike;
   } catch (err) {
-    logger.debug(`[milaidy-api] GoalDataService unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    logger.debug(
+      `[milaidy-api] GoalDataService unavailable: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return null;
   }
 }
 
-async function getTodoDataService(runtime: AgentRuntime | null): Promise<TodoDataServiceLike | null> {
+async function getTodoDataService(
+  runtime: AgentRuntime | null,
+): Promise<TodoDataServiceLike | null> {
   if (!runtime) return null;
   try {
     const { createTodoDataService } = await import("@elizaos/plugin-todo");
-    return createTodoDataService(runtime as unknown as import("@elizaos/core").IAgentRuntime) as TodoDataServiceLike;
+    return createTodoDataService(
+      runtime as unknown as import("@elizaos/core").IAgentRuntime,
+    ) as TodoDataServiceLike;
   } catch (err) {
-    logger.debug(`[milaidy-api] TodoDataService unavailable: ${err instanceof Error ? err.message : String(err)}`);
+    logger.debug(
+      `[milaidy-api] TodoDataService unavailable: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return null;
   }
 }
@@ -241,7 +262,11 @@ function clampPriority(raw: unknown): number | null {
 function normalizeTags(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   const tags = raw
-    .map((tag) => String(tag ?? "").trim().toLowerCase())
+    .map((tag) =>
+      String(tag ?? "")
+        .trim()
+        .toLowerCase(),
+    )
     .filter((tag) => tag.length > 0);
   return [...new Set(tags)];
 }
@@ -256,9 +281,18 @@ function normalizeShareFiles(raw: unknown): ShareIngestFile[] {
     if (!name) continue;
     out.push({
       name,
-      path: typeof file.path === "string" && file.path.trim() ? file.path.trim() : undefined,
-      mimeType: typeof file.mimeType === "string" && file.mimeType.trim() ? file.mimeType.trim() : null,
-      size: typeof file.size === "number" && Number.isFinite(file.size) ? file.size : null,
+      path:
+        typeof file.path === "string" && file.path.trim()
+          ? file.path.trim()
+          : undefined,
+      mimeType:
+        typeof file.mimeType === "string" && file.mimeType.trim()
+          ? file.mimeType.trim()
+          : null,
+      size:
+        typeof file.size === "number" && Number.isFinite(file.size)
+          ? file.size
+          : null,
     });
   }
   return out.slice(0, 24);
@@ -308,6 +342,7 @@ interface ServerState {
   chatRoomId: UUID | null;
   chatUserId: UUID | null;
   shareInbox: ShareIngestItem[];
+  cloudManager: CloudManager | null;
 }
 
 interface ShareIngestFile {
@@ -427,9 +462,7 @@ interface PluginIndex {
  * Hidden plugin config keys should not be shown in UI metadata surfaces.
  * They may still exist in upstream plugin manifests.
  */
-const HIDDEN_PLUGIN_CONFIG_KEYS = new Set([
-  "VERCEL_OIDC_TOKEN",
-]);
+const HIDDEN_PLUGIN_CONFIG_KEYS = new Set(["VERCEL_OIDC_TOKEN"]);
 
 function maskValue(value: string): string {
   if (value.length <= 8) return "****";
@@ -464,13 +497,20 @@ function buildParamDefs(
 }
 
 function sanitizePluginIndexEntry(entry: PluginIndexEntry): PluginIndexEntry {
-  const configKeys = entry.configKeys.filter((key) => !HIDDEN_PLUGIN_CONFIG_KEYS.has(key));
+  const configKeys = entry.configKeys.filter(
+    (key) => !HIDDEN_PLUGIN_CONFIG_KEYS.has(key),
+  );
   const pluginParameters = entry.pluginParameters
     ? Object.fromEntries(
-      Object.entries(entry.pluginParameters).filter(([key]) => !HIDDEN_PLUGIN_CONFIG_KEYS.has(key)),
-    )
+        Object.entries(entry.pluginParameters).filter(
+          ([key]) => !HIDDEN_PLUGIN_CONFIG_KEYS.has(key),
+        ),
+      )
     : undefined;
-  const envKey = entry.envKey && HIDDEN_PLUGIN_CONFIG_KEYS.has(entry.envKey) ? null : entry.envKey;
+  const envKey =
+    entry.envKey && HIDDEN_PLUGIN_CONFIG_KEYS.has(entry.envKey)
+      ? null
+      : entry.envKey;
 
   return {
     ...entry,
@@ -570,7 +610,7 @@ function discoverInstalledPlugins(
 function discoverCustomDropInPlugins(existingIds: Set<string>): PluginEntry[] {
   const customDir = path.join(resolveStateDir(), "plugins", "custom");
 
-  let dirEntries: ReturnType<typeof fs.readdirSync>;
+  let dirEntries: fs.Dirent[];
   try {
     dirEntries = fs.readdirSync(customDir, { withFileTypes: true });
   } catch {
@@ -582,21 +622,27 @@ function discoverCustomDropInPlugins(existingIds: Set<string>): PluginEntry[] {
   for (const entry of dirEntries) {
     if (!entry.isDirectory()) continue;
 
-    const pluginDir = path.join(customDir, entry.name);
-    let pluginName = entry.name;
+    const pluginDir = path.join(customDir, String(entry.name));
+    let pluginName = String(entry.name);
     let description = "Custom drop-in plugin";
     let version = "";
 
     try {
       if (fs.existsSync(path.join(pluginDir, "package.json"))) {
-        const pkg = JSON.parse(fs.readFileSync(path.join(pluginDir, "package.json"), "utf-8")) as {
-          name?: string; description?: string; version?: string;
+        const pkg = JSON.parse(
+          fs.readFileSync(path.join(pluginDir, "package.json"), "utf-8"),
+        ) as {
+          name?: string;
+          description?: string;
+          version?: string;
         };
         if (pkg.name) pluginName = pkg.name;
         if (pkg.description) description = pkg.description;
         if (pkg.version) version = pkg.version;
       }
-    } catch { /* ignore read errors */ }
+    } catch {
+      /* ignore read errors */
+    }
 
     const id = pluginName
       .replace(/^@[^/]+\/plugin-/, "")
@@ -632,18 +678,36 @@ function discoverPluginsFromManifest(): PluginEntry[] {
 
   if (fs.existsSync(manifestPath)) {
     try {
-      const index = JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as PluginIndex;
-      return index.plugins.map((rawPlugin) => {
-        const p = sanitizePluginIndexEntry(rawPlugin);
-        const category = categorizePlugin(p.id);
-        const envKey = p.envKey;
-        const configured = envKey ? Boolean(process.env[envKey]) : p.configKeys.length === 0;
-        const parameters = p.pluginParameters ? buildParamDefs(p.pluginParameters) : [];
-        const paramInfos: PluginParamInfo[] = parameters.map((pd) => ({
-          key: pd.key, required: pd.required, sensitive: pd.sensitive,
-          type: pd.type, description: pd.description, default: pd.default,
-        }));
-        const validation = validatePluginConfig(p.id, category, envKey, p.configKeys, undefined, paramInfos);
+      const index = JSON.parse(
+        fs.readFileSync(manifestPath, "utf-8"),
+      ) as PluginIndex;
+      return index.plugins
+        .map((rawPlugin) => {
+          const p = sanitizePluginIndexEntry(rawPlugin);
+          const category = categorizePlugin(p.id);
+          const envKey = p.envKey;
+          const configured = envKey
+            ? Boolean(process.env[envKey])
+            : p.configKeys.length === 0;
+          const parameters = p.pluginParameters
+            ? buildParamDefs(p.pluginParameters)
+            : [];
+          const paramInfos: PluginParamInfo[] = parameters.map((pd) => ({
+            key: pd.key,
+            required: pd.required,
+            sensitive: pd.sensitive,
+            type: pd.type,
+            description: pd.description,
+            default: pd.default,
+          }));
+          const validation = validatePluginConfig(
+            p.id,
+            category,
+            envKey,
+            p.configKeys,
+            undefined,
+            paramInfos,
+          );
 
           return {
             id: p.id,
@@ -868,7 +932,9 @@ async function discoverSkills(
   // Bundled skills from the @elizaos/skills package
   try {
     // @ts-ignore — optional peer dependency, resolved at runtime
-    const skillsPkg = await import("@elizaos/skills") as { getSkillsDir: () => string };
+    const skillsPkg = (await import("@elizaos/skills")) as {
+      getSkillsDir: () => string;
+    };
     const bundledDir = skillsPkg.getSkillsDir();
     if (bundledDir && fs.existsSync(bundledDir)) {
       skillsDirs.push(bundledDir);
@@ -1104,30 +1170,127 @@ function getProviderOptions(): Array<{
   description: string;
 }> {
   return [
-    { id: "elizacloud", name: "Eliza Cloud", envKey: null, pluginName: "@elizaos/plugin-elizacloud", keyPrefix: null, description: "Free credits to start, but they run out." },
-    { id: "anthropic", name: "Anthropic", envKey: "ANTHROPIC_API_KEY", pluginName: "@elizaos/plugin-anthropic", keyPrefix: "sk-ant-", description: "Claude models." },
-    { id: "openai", name: "OpenAI", envKey: "OPENAI_API_KEY", pluginName: "@elizaos/plugin-openai", keyPrefix: "sk-", description: "GPT models." },
-    { id: "openrouter", name: "OpenRouter", envKey: "OPENROUTER_API_KEY", pluginName: "@elizaos/plugin-openrouter", keyPrefix: "sk-or-", description: "Access multiple models via one API key." },
-    { id: "vercel-ai-gateway", name: "Vercel AI Gateway", envKey: "AI_GATEWAY_API_KEY", pluginName: "@elizaos/plugin-vercel-ai-gateway", keyPrefix: null, description: "OpenAI-compatible gateway to route across providers/models." },
-    { id: "gemini", name: "Gemini", envKey: "GOOGLE_API_KEY", pluginName: "@elizaos/plugin-google-genai", keyPrefix: null, description: "Google's Gemini models." },
-    { id: "grok", name: "Grok", envKey: "XAI_API_KEY", pluginName: "@elizaos/plugin-xai", keyPrefix: "xai-", description: "xAI's Grok models." },
-    { id: "groq", name: "Groq", envKey: "GROQ_API_KEY", pluginName: "@elizaos/plugin-groq", keyPrefix: "gsk_", description: "Fast inference." },
-    { id: "deepseek", name: "DeepSeek", envKey: "DEEPSEEK_API_KEY", pluginName: "@elizaos/plugin-deepseek", keyPrefix: "sk-", description: "DeepSeek models." },
-    { id: "mistral", name: "Mistral", envKey: "MISTRAL_API_KEY", pluginName: "@elizaos/plugin-mistral", keyPrefix: null, description: "Mistral AI models." },
-    { id: "together", name: "Together AI", envKey: "TOGETHER_API_KEY", pluginName: "@elizaos/plugin-together", keyPrefix: null, description: "Open-source model hosting." },
-    { id: "ollama", name: "Ollama (local)", envKey: null, pluginName: "@elizaos/plugin-ollama", keyPrefix: null, description: "Local models, no API key needed." },
+    {
+      id: "elizacloud",
+      name: "Eliza Cloud",
+      envKey: null,
+      pluginName: "@elizaos/plugin-elizacloud",
+      keyPrefix: null,
+      description: "Free credits to start, but they run out.",
+    },
+    {
+      id: "anthropic",
+      name: "Anthropic",
+      envKey: "ANTHROPIC_API_KEY",
+      pluginName: "@elizaos/plugin-anthropic",
+      keyPrefix: "sk-ant-",
+      description: "Claude models.",
+    },
+    {
+      id: "openai",
+      name: "OpenAI",
+      envKey: "OPENAI_API_KEY",
+      pluginName: "@elizaos/plugin-openai",
+      keyPrefix: "sk-",
+      description: "GPT models.",
+    },
+    {
+      id: "openrouter",
+      name: "OpenRouter",
+      envKey: "OPENROUTER_API_KEY",
+      pluginName: "@elizaos/plugin-openrouter",
+      keyPrefix: "sk-or-",
+      description: "Access multiple models via one API key.",
+    },
+    {
+      id: "vercel-ai-gateway",
+      name: "Vercel AI Gateway",
+      envKey: "AI_GATEWAY_API_KEY",
+      pluginName: "@elizaos/plugin-vercel-ai-gateway",
+      keyPrefix: null,
+      description:
+        "OpenAI-compatible gateway to route across providers/models.",
+    },
+    {
+      id: "gemini",
+      name: "Gemini",
+      envKey: "GOOGLE_API_KEY",
+      pluginName: "@elizaos/plugin-google-genai",
+      keyPrefix: null,
+      description: "Google's Gemini models.",
+    },
+    {
+      id: "grok",
+      name: "Grok",
+      envKey: "XAI_API_KEY",
+      pluginName: "@elizaos/plugin-xai",
+      keyPrefix: "xai-",
+      description: "xAI's Grok models.",
+    },
+    {
+      id: "groq",
+      name: "Groq",
+      envKey: "GROQ_API_KEY",
+      pluginName: "@elizaos/plugin-groq",
+      keyPrefix: "gsk_",
+      description: "Fast inference.",
+    },
+    {
+      id: "deepseek",
+      name: "DeepSeek",
+      envKey: "DEEPSEEK_API_KEY",
+      pluginName: "@elizaos/plugin-deepseek",
+      keyPrefix: "sk-",
+      description: "DeepSeek models.",
+    },
+    {
+      id: "mistral",
+      name: "Mistral",
+      envKey: "MISTRAL_API_KEY",
+      pluginName: "@elizaos/plugin-mistral",
+      keyPrefix: null,
+      description: "Mistral AI models.",
+    },
+    {
+      id: "together",
+      name: "Together AI",
+      envKey: "TOGETHER_API_KEY",
+      pluginName: "@elizaos/plugin-together",
+      keyPrefix: null,
+      description: "Open-source model hosting.",
+    },
+    {
+      id: "ollama",
+      name: "Ollama (local)",
+      envKey: null,
+      pluginName: "@elizaos/plugin-ollama",
+      keyPrefix: null,
+      description: "Local models, no API key needed.",
+    },
   ];
 }
 
-function getCloudProviderOptions(): Array<{ id: string; name: string; description: string }> {
+function getCloudProviderOptions(): Array<{
+  id: string;
+  name: string;
+  description: string;
+}> {
   return [];
 }
 
-function getModelOptions(): Array<{ id: string; name: string; provider: string }> {
+function getModelOptions(): Array<{
+  id: string;
+  name: string;
+  provider: string;
+}> {
   return [];
 }
 
-function getInventoryProviderOptions(): Array<{ id: string; name: string; description: string }> {
+function getInventoryProviderOptions(): Array<{
+  id: string;
+  name: string;
+  description: string;
+}> {
   return [];
 }
 
@@ -1144,15 +1307,29 @@ interface RegistryPluginLike {
   topics: string[];
   stars: number;
   language: string;
-  npm: { package: string; v0Version: string | null; v1Version: string | null; v2Version: string | null };
-  git: { v0Branch: string | null; v1Branch: string | null; v2Branch: string | null };
+  npm: {
+    package: string;
+    v0Version: string | null;
+    v1Version: string | null;
+    v2Version: string | null;
+  };
+  git: {
+    v0Branch: string | null;
+    v1Branch: string | null;
+    v2Branch: string | null;
+  };
   supports: { v0: boolean; v1: boolean; v2: boolean };
 }
 
 const NPM_META_TTL_MS = 12 * 60 * 60 * 1000;
-const npmPackageModifiedCache = new Map<string, { modifiedAt: string | null; fetchedAt: number }>();
+const npmPackageModifiedCache = new Map<
+  string,
+  { modifiedAt: string | null; fetchedAt: number }
+>();
 
-async function getPackageModifiedAt(packageName: string): Promise<string | null> {
+async function getPackageModifiedAt(
+  packageName: string,
+): Promise<string | null> {
   const cached = npmPackageModifiedCache.get(packageName);
   if (cached && Date.now() - cached.fetchedAt < NPM_META_TTL_MS) {
     return cached.modifiedAt;
@@ -1160,22 +1337,33 @@ async function getPackageModifiedAt(packageName: string): Promise<string | null>
 
   let modifiedAt: string | null = null;
   try {
-    const resp = await fetch(`https://registry.npmjs.org/${encodeURIComponent(packageName)}`, {
-      signal: AbortSignal.timeout(4000),
-    });
+    const resp = await fetch(
+      `https://registry.npmjs.org/${encodeURIComponent(packageName)}`,
+      {
+        signal: AbortSignal.timeout(4000),
+      },
+    );
     if (resp.ok) {
-      const data = await resp.json() as { time?: { modified?: string } };
-      modifiedAt = typeof data?.time?.modified === "string" ? data.time.modified : null;
+      const data = (await resp.json()) as { time?: { modified?: string } };
+      modifiedAt =
+        typeof data?.time?.modified === "string" ? data.time.modified : null;
     }
   } catch {
     modifiedAt = null;
   }
 
-  npmPackageModifiedCache.set(packageName, { modifiedAt, fetchedAt: Date.now() });
+  npmPackageModifiedCache.set(packageName, {
+    modifiedAt,
+    fetchedAt: Date.now(),
+  });
   return modifiedAt;
 }
 
-function computeCompatibility(plugin: RegistryPluginLike): { confidence: number; level: "low" | "medium" | "high"; label: string } {
+function computeCompatibility(plugin: RegistryPluginLike): {
+  confidence: number;
+  level: "low" | "medium" | "high";
+  label: string;
+} {
   if (plugin.supports.v2 && plugin.npm.v2Version) {
     return { confidence: 0.95, level: "high", label: "v2 package published" };
   }
@@ -1219,17 +1407,40 @@ function computeMaintenance(modifiedAt: string | null): {
     };
   }
 
-  const days = Math.max(0, Math.floor((Date.now() - ts) / (24 * 60 * 60 * 1000)));
+  const days = Math.max(
+    0,
+    Math.floor((Date.now() - ts) / (24 * 60 * 60 * 1000)),
+  );
   if (days <= 45) {
-    return { modifiedAt, daysSinceUpdate: days, status: "fresh", label: `updated ${days}d ago`, score: 1 };
+    return {
+      modifiedAt,
+      daysSinceUpdate: days,
+      status: "fresh",
+      label: `updated ${days}d ago`,
+      score: 1,
+    };
   }
   if (days <= 180) {
-    return { modifiedAt, daysSinceUpdate: days, status: "recent", label: `updated ${days}d ago`, score: 0.78 };
+    return {
+      modifiedAt,
+      daysSinceUpdate: days,
+      status: "recent",
+      label: `updated ${days}d ago`,
+      score: 0.78,
+    };
   }
-  return { modifiedAt, daysSinceUpdate: days, status: "stale", label: `updated ${days}d ago`, score: 0.38 };
+  return {
+    modifiedAt,
+    daysSinceUpdate: days,
+    status: "stale",
+    label: `updated ${days}d ago`,
+    score: 0.38,
+  };
 }
 
-function computeTrustLevel(score: number): "low" | "guarded" | "medium" | "high" {
+function computeTrustLevel(
+  score: number,
+): "low" | "guarded" | "medium" | "high" {
   if (score >= 80) return "high";
   if (score >= 62) return "medium";
   if (score >= 45) return "guarded";
@@ -1240,39 +1451,48 @@ async function enrichRegistryPlugin(
   plugin: RegistryPluginLike,
   isInstalled: boolean,
   fetchRecency = true,
-): Promise<RegistryPluginLike & {
-  insights: {
-    trustScore: number;
-    trustLevel: "low" | "guarded" | "medium" | "high";
-    maintenance: {
-      modifiedAt: string | null;
-      daysSinceUpdate: number | null;
-      status: "fresh" | "recent" | "stale" | "unknown";
-      label: string;
+): Promise<
+  RegistryPluginLike & {
+    insights: {
+      trustScore: number;
+      trustLevel: "low" | "guarded" | "medium" | "high";
+      maintenance: {
+        modifiedAt: string | null;
+        daysSinceUpdate: number | null;
+        status: "fresh" | "recent" | "stale" | "unknown";
+        label: string;
+      };
+      compatibility: {
+        confidence: number;
+        level: "low" | "medium" | "high";
+        label: string;
+      };
+      restartImpact: {
+        install: "restart-required" | "unknown";
+        uninstall: "restart-required" | "unknown";
+        label: string;
+      };
+      badges: string[];
     };
-    compatibility: {
-      confidence: number;
-      level: "low" | "medium" | "high";
-      label: string;
-    };
-    restartImpact: {
-      install: "restart-required" | "unknown";
-      uninstall: "restart-required" | "unknown";
-      label: string;
-    };
-    badges: string[];
-  };
-}> {
-  const cached = plugin.npm.package ? npmPackageModifiedCache.get(plugin.npm.package) : undefined;
+  }
+> {
+  const cached = plugin.npm.package
+    ? npmPackageModifiedCache.get(plugin.npm.package)
+    : undefined;
   const modifiedAt = plugin.npm.package
-    ? (fetchRecency
+    ? fetchRecency
       ? await getPackageModifiedAt(plugin.npm.package)
-      : (cached?.modifiedAt ?? null))
+      : (cached?.modifiedAt ?? null)
     : null;
   const maintenance = computeMaintenance(modifiedAt);
   const compatibility = computeCompatibility(plugin);
   const starsScore = Math.min(1, Math.log10((plugin.stars ?? 0) + 1) / 3);
-  const trustScore = Math.round((starsScore * 0.35 + maintenance.score * 0.3 + compatibility.confidence * 0.35) * 100);
+  const trustScore = Math.round(
+    (starsScore * 0.35 +
+      maintenance.score * 0.3 +
+      compatibility.confidence * 0.35) *
+      100,
+  );
   const trustLevel = computeTrustLevel(trustScore);
   const restartImpact = {
     install: "restart-required" as const,
@@ -1475,8 +1695,14 @@ async function handleRequest(
   if (method === "OPTIONS") {
     // applyCors() already ran above and set the proper origin header.
     // Just add the remaining preflight headers and respond 204.
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Milaidy-Token, X-Api-Key");
+    res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    );
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, X-Milaidy-Token, X-Api-Key",
+    );
     res.setHeader("Access-Control-Max-Age", "86400");
     res.writeHead(204);
     res.end();
@@ -1689,7 +1915,8 @@ async function handleRequest(
     }
     if (body.skillsmpApiKey) {
       if (!config.env) config.env = {};
-      (config.env as Record<string, string>).SKILLSMP_API_KEY = body.skillsmpApiKey as string;
+      (config.env as Record<string, string>).SKILLSMP_API_KEY =
+        body.skillsmpApiKey as string;
       process.env.SKILLSMP_API_KEY = body.skillsmpApiKey as string;
     }
 
@@ -2086,7 +2313,9 @@ async function handleRequest(
       try {
         goals = await goalSvc.getGoals();
       } catch (err) {
-        logger.warn(`[milaidy-api] Failed to load goals for workbench: ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(
+          `[milaidy-api] Failed to load goals for workbench: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
@@ -2094,7 +2323,9 @@ async function handleRequest(
       try {
         todos = await todoSvc.getTodos({ limit: 300 });
       } catch (err) {
-        logger.warn(`[milaidy-api] Failed to load todos for workbench: ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(
+          `[milaidy-api] Failed to load todos for workbench: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
@@ -2191,9 +2422,11 @@ async function handleRequest(
     }
 
     const ownerType = body.ownerType === "entity" ? "entity" : "agent";
-    const rawOwnerId = body.ownerId?.trim() || (ownerType === "entity"
-      ? (state.chatUserId ?? state.runtime.agentId)
-      : state.runtime.agentId);
+    const rawOwnerId =
+      body.ownerId?.trim() ||
+      (ownerType === "entity"
+        ? (state.chatUserId ?? state.runtime.agentId)
+        : state.runtime.agentId);
     if (!isValidUuid(rawOwnerId)) {
       error(res, "ownerId must be a valid UUID", 400);
       return;
@@ -2210,7 +2443,10 @@ async function handleRequest(
         ownerType,
         ownerId,
         name,
-        description: typeof body.description === "string" ? body.description.trim() : undefined,
+        description:
+          typeof body.description === "string"
+            ? body.description.trim()
+            : undefined,
         metadata,
         tags,
       });
@@ -2224,22 +2460,28 @@ async function handleRequest(
       json(res, {
         ok: true,
         id,
-        goal: created ? {
-          id: created.id,
-          name: created.name,
-          description: created.description ?? null,
-          ownerType: created.ownerType,
-          ownerId: created.ownerId,
-          isCompleted: created.isCompleted,
-          completedAt: toIsoOrNull(created.completedAt),
-          createdAt: toIsoOrNull(created.createdAt),
-          updatedAt: toIsoOrNull(created.updatedAt),
-          tags: created.tags ?? [],
-          metadata: created.metadata ?? {},
-        } : null,
+        goal: created
+          ? {
+              id: created.id,
+              name: created.name,
+              description: created.description ?? null,
+              ownerType: created.ownerType,
+              ownerId: created.ownerId,
+              isCompleted: created.isCompleted,
+              completedAt: toIsoOrNull(created.completedAt),
+              createdAt: toIsoOrNull(created.createdAt),
+              updatedAt: toIsoOrNull(created.updatedAt),
+              tags: created.tags ?? [],
+              metadata: created.metadata ?? {},
+            }
+          : null,
       });
     } catch (err) {
-      error(res, `Failed to create goal: ${err instanceof Error ? err.message : String(err)}`, 500);
+      error(
+        res,
+        `Failed to create goal: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      );
     }
     return;
   }
@@ -2251,7 +2493,9 @@ async function handleRequest(
       return;
     }
 
-    const goalId = decodeURIComponent(pathname.slice("/api/workbench/goals/".length));
+    const goalId = decodeURIComponent(
+      pathname.slice("/api/workbench/goals/".length),
+    );
     if (!goalId || !isValidUuid(goalId)) {
       error(res, "Valid goal UUID is required", 400);
       return;
@@ -2272,15 +2516,18 @@ async function handleRequest(
       return;
     }
 
-    const hasAnyField = (
-      body.name !== undefined
-      || body.description !== undefined
-      || body.isCompleted !== undefined
-      || body.priority !== undefined
-      || body.tags !== undefined
-    );
+    const hasAnyField =
+      body.name !== undefined ||
+      body.description !== undefined ||
+      body.isCompleted !== undefined ||
+      body.priority !== undefined ||
+      body.tags !== undefined;
     if (!hasAnyField) {
-      error(res, "Request body must include at least one updatable goal field", 400);
+      error(
+        res,
+        "Request body must include at least one updatable goal field",
+        400,
+      );
       return;
     }
 
@@ -2335,7 +2582,11 @@ async function handleRequest(
       }
       json(res, { ok: true, id: goalId });
     } catch (err) {
-      error(res, `Failed to update goal: ${err instanceof Error ? err.message : String(err)}`, 500);
+      error(
+        res,
+        `Failed to update goal: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      );
     }
     return;
   }
@@ -2371,14 +2622,20 @@ async function handleRequest(
     }
 
     const runtimeAgentId = state.runtime.agentId as UUID;
-    if (!state.chatRoomId) state.chatRoomId = stringToUuid(`${runtimeAgentId}:workbench-room`);
-    if (!state.chatUserId) state.chatUserId = stringToUuid(`${runtimeAgentId}:workbench-entity`);
+    if (!state.chatRoomId)
+      state.chatRoomId = stringToUuid(`${runtimeAgentId}:workbench-room`);
+    if (!state.chatUserId)
+      state.chatUserId = stringToUuid(`${runtimeAgentId}:workbench-entity`);
 
-    const todoType = body.type === "daily" || body.type === "aspirational" ? body.type : "one-off";
+    const todoType =
+      body.type === "daily" || body.type === "aspirational"
+        ? body.type
+        : "one-off";
     const priority = clampPriority(body.priority);
-    const parsedDueDate = typeof body.dueDate === "string" && body.dueDate.trim()
-      ? new Date(body.dueDate)
-      : undefined;
+    const parsedDueDate =
+      typeof body.dueDate === "string" && body.dueDate.trim()
+        ? new Date(body.dueDate)
+        : undefined;
     if (parsedDueDate && Number.isNaN(parsedDueDate.getTime())) {
       error(res, "Invalid dueDate format", 400);
       return;
@@ -2391,7 +2648,10 @@ async function handleRequest(
         roomId: state.chatRoomId,
         entityId: state.chatUserId,
         name,
-        description: typeof body.description === "string" ? body.description.trim() : undefined,
+        description:
+          typeof body.description === "string"
+            ? body.description.trim()
+            : undefined,
         type: todoType,
         priority: priority ?? undefined,
         isUrgent: body.isUrgent === true,
@@ -2403,7 +2663,11 @@ async function handleRequest(
       });
       json(res, { ok: true, id });
     } catch (err) {
-      error(res, `Failed to create todo: ${err instanceof Error ? err.message : String(err)}`, 500);
+      error(
+        res,
+        `Failed to create todo: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      );
     }
     return;
   }
@@ -2415,7 +2679,9 @@ async function handleRequest(
       return;
     }
 
-    const todoId = decodeURIComponent(pathname.slice("/api/workbench/todos/".length));
+    const todoId = decodeURIComponent(
+      pathname.slice("/api/workbench/todos/".length),
+    );
     if (!todoId || !isValidUuid(todoId)) {
       error(res, "Valid todo UUID is required", 400);
       return;
@@ -2431,16 +2697,19 @@ async function handleRequest(
     }>(req, res);
     if (!body) return;
 
-    const hasAnyField = (
-      body.name !== undefined
-      || body.description !== undefined
-      || body.priority !== undefined
-      || body.isUrgent !== undefined
-      || body.isCompleted !== undefined
-      || body.dueDate !== undefined
-    );
+    const hasAnyField =
+      body.name !== undefined ||
+      body.description !== undefined ||
+      body.priority !== undefined ||
+      body.isUrgent !== undefined ||
+      body.isCompleted !== undefined ||
+      body.dueDate !== undefined;
     if (!hasAnyField) {
-      error(res, "Request body must include at least one updatable todo field", 400);
+      error(
+        res,
+        "Request body must include at least one updatable todo field",
+        400,
+      );
       return;
     }
 
@@ -2509,7 +2778,11 @@ async function handleRequest(
       }
       json(res, { ok: true, id: todoId });
     } catch (err) {
-      error(res, `Failed to update todo: ${err instanceof Error ? err.message : String(err)}`, 500);
+      error(
+        res,
+        `Failed to update todo: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      );
     }
     return;
   }
@@ -2525,10 +2798,20 @@ async function handleRequest(
     }>(req, res);
     if (!body) return;
 
-    const source = typeof body.source === "string" && body.source.trim() ? body.source.trim() : "unknown-source";
-    const title = typeof body.title === "string" && body.title.trim() ? body.title.trim() : null;
-    const text = typeof body.text === "string" && body.text.trim() ? body.text.trim() : null;
-    const sharedUrl = typeof body.url === "string" && body.url.trim() ? body.url.trim() : null;
+    const source =
+      typeof body.source === "string" && body.source.trim()
+        ? body.source.trim()
+        : "unknown-source";
+    const title =
+      typeof body.title === "string" && body.title.trim()
+        ? body.title.trim()
+        : null;
+    const text =
+      typeof body.text === "string" && body.text.trim()
+        ? body.text.trim()
+        : null;
+    const sharedUrl =
+      typeof body.url === "string" && body.url.trim() ? body.url.trim() : null;
     const files = normalizeShareFiles(body.files);
 
     if (!title && !text && !sharedUrl && files.length === 0) {
@@ -2562,8 +2845,12 @@ async function handleRequest(
 
   // ── GET /api/ingest/share ──────────────────────────────────────────────
   if (method === "GET" && pathname === "/api/ingest/share") {
-    const shouldConsume = url.searchParams.get("consume") === "1" || url.searchParams.get("consume") === "true";
-    const items = shouldConsume ? state.shareInbox.splice(0) : [...state.shareInbox];
+    const shouldConsume =
+      url.searchParams.get("consume") === "1" ||
+      url.searchParams.get("consume") === "true";
+    const items = shouldConsume
+      ? state.shareInbox.splice(0)
+      : [...state.shareInbox];
     json(res, { count: items.length, items });
     return;
   }
@@ -2609,12 +2896,15 @@ async function handleRequest(
       const c = state.runtime.character;
       if (validated.name != null) c.name = validated.name;
       if (validated.bio != null)
-        c.bio = Array.isArray(validated.bio) ? validated.bio : [String(validated.bio)];
+        c.bio = Array.isArray(validated.bio)
+          ? validated.bio
+          : [String(validated.bio)];
       if (validated.system != null) c.system = validated.system;
       if (validated.adjectives != null) c.adjectives = validated.adjectives;
       if (validated.topics != null) c.topics = validated.topics;
       if (validated.style != null) c.style = validated.style;
-      if (validated.postExamples != null) c.postExamples = validated.postExamples;
+      if (validated.postExamples != null)
+        c.postExamples = validated.postExamples;
     }
     if (validated.name) {
       state.agentName = validated.name;
@@ -2627,21 +2917,83 @@ async function handleRequest(
   if (method === "GET" && pathname === "/api/character/schema") {
     json(res, {
       fields: [
-        { key: "name", type: "string", label: "Name", description: "Agent display name", maxLength: 100 },
-        { key: "username", type: "string", label: "Username", description: "Agent username for platforms", maxLength: 50 },
-        { key: "bio", type: "string | string[]", label: "Bio", description: "Biography — single string or array of points" },
-        { key: "system", type: "string", label: "System Prompt", description: "System prompt defining core behavior", maxLength: 10000 },
-        { key: "adjectives", type: "string[]", label: "Adjectives", description: "Personality adjectives (e.g. curious, witty)" },
-        { key: "topics", type: "string[]", label: "Topics", description: "Topics the agent is knowledgeable about" },
         {
-          key: "style", type: "object", label: "Style", description: "Communication style guides", children: [
-            { key: "all", type: "string[]", label: "All", description: "Style guidelines for all responses" },
-            { key: "chat", type: "string[]", label: "Chat", description: "Style guidelines for chat responses" },
-            { key: "post", type: "string[]", label: "Post", description: "Style guidelines for social media posts" },
-          ]
+          key: "name",
+          type: "string",
+          label: "Name",
+          description: "Agent display name",
+          maxLength: 100,
         },
-        { key: "messageExamples", type: "array", label: "Message Examples", description: "Example conversations demonstrating the agent's voice" },
-        { key: "postExamples", type: "string[]", label: "Post Examples", description: "Example social media posts" },
+        {
+          key: "username",
+          type: "string",
+          label: "Username",
+          description: "Agent username for platforms",
+          maxLength: 50,
+        },
+        {
+          key: "bio",
+          type: "string | string[]",
+          label: "Bio",
+          description: "Biography — single string or array of points",
+        },
+        {
+          key: "system",
+          type: "string",
+          label: "System Prompt",
+          description: "System prompt defining core behavior",
+          maxLength: 10000,
+        },
+        {
+          key: "adjectives",
+          type: "string[]",
+          label: "Adjectives",
+          description: "Personality adjectives (e.g. curious, witty)",
+        },
+        {
+          key: "topics",
+          type: "string[]",
+          label: "Topics",
+          description: "Topics the agent is knowledgeable about",
+        },
+        {
+          key: "style",
+          type: "object",
+          label: "Style",
+          description: "Communication style guides",
+          children: [
+            {
+              key: "all",
+              type: "string[]",
+              label: "All",
+              description: "Style guidelines for all responses",
+            },
+            {
+              key: "chat",
+              type: "string[]",
+              label: "Chat",
+              description: "Style guidelines for chat responses",
+            },
+            {
+              key: "post",
+              type: "string[]",
+              label: "Post",
+              description: "Style guidelines for social media posts",
+            },
+          ],
+        },
+        {
+          key: "messageExamples",
+          type: "array",
+          label: "Message Examples",
+          description: "Example conversations demonstrating the agent's voice",
+        },
+        {
+          key: "postExamples",
+          type: "string[]",
+          label: "Post Examples",
+          description: "Example social media posts",
+        },
       ],
     });
     return;
@@ -2662,9 +3014,16 @@ async function handleRequest(
     // Merge user-installed and custom drop-in plugins into the list
     const bundledIds = new Set(state.plugins.map((p) => p.id));
     const installedEntries = discoverInstalledPlugins(freshConfig, bundledIds);
-    const knownIds = new Set([...bundledIds, ...installedEntries.map((p) => p.id)]);
+    const knownIds = new Set([
+      ...bundledIds,
+      ...installedEntries.map((p) => p.id),
+    ]);
     const customEntries = discoverCustomDropInPlugins(knownIds);
-    const allPlugins = [...state.plugins, ...installedEntries, ...customEntries];
+    const allPlugins = [
+      ...state.plugins,
+      ...installedEntries,
+      ...customEntries,
+    ];
 
     // Update enabled status from runtime (if available)
     if (state.runtime) {
@@ -2672,16 +3031,16 @@ async function handleRequest(
       for (const plugin of allPlugins) {
         const suffix = `plugin-${plugin.id}`;
         const packageName = `@elizaos/plugin-${plugin.id}`;
-        const isLoaded = loadedNames.some(
-          (name) => {
-            // Check various name formats
-            return name === plugin.id
-              || name === suffix
-              || name === packageName
-              || name.endsWith(`/${suffix}`)
-              || name.includes(plugin.id);
-          },
-        );
+        const isLoaded = loadedNames.some((name) => {
+          // Check various name formats
+          return (
+            name === plugin.id ||
+            name === suffix ||
+            name === packageName ||
+            name.endsWith(`/${suffix}`) ||
+            name.includes(plugin.id)
+          );
+        });
         plugin.enabled = isLoaded;
         plugin.isActive = isLoaded; // Mark as active if currently loaded in runtime
 
@@ -2788,7 +3147,7 @@ async function handleRequest(
         }
       } else {
         state.config.plugins.allow = state.config.plugins.allow.filter(
-          (p) => p !== pluginPackageName
+          (p) => p !== pluginPackageName,
         );
         logger.info(`[milaidy-api] Disabled plugin: ${pluginPackageName}`);
       }
@@ -2798,23 +3157,31 @@ async function handleRequest(
         saveMilaidyConfig(state.config);
         logger.info(`[milaidy-api] Saved plugin configuration`);
       } catch (err) {
-        logger.warn(`[milaidy-api] Failed to save config: ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(
+          `[milaidy-api] Failed to save config: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
 
       // Trigger runtime restart to apply plugin changes
       if (ctx?.onRestart) {
         const onRestartFn = ctx.onRestart;
-        logger.info(`[milaidy-api] Restarting runtime to apply plugin changes...`);
+        logger.info(
+          `[milaidy-api] Restarting runtime to apply plugin changes...`,
+        );
         setImmediate(async () => {
           try {
             const newRuntime = await onRestartFn();
             if (newRuntime) {
               state.runtime = newRuntime;
               state.agentState = "running";
-              logger.info(`[milaidy-api] Runtime restarted successfully with updated plugins`);
+              logger.info(
+                `[milaidy-api] Runtime restarted successfully with updated plugins`,
+              );
             }
           } catch (err) {
-            logger.error(`[milaidy-api] Runtime restart failed: ${err instanceof Error ? err.message : String(err)}`);
+            logger.error(
+              `[milaidy-api] Runtime restart failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
             state.agentState = "not_started";
           }
         });
@@ -2940,8 +3307,12 @@ async function handleRequest(
 
   // ── GET /api/registry/plugins ──────────────────────────────────────────
   if (method === "GET" && pathname === "/api/registry/plugins") {
-    const { getRegistryPlugins } = await import("../services/registry-client.js");
-    const { listInstalledPlugins } = await import("../services/plugin-installer.js");
+    const { getRegistryPlugins } = await import(
+      "../services/registry-client.js"
+    );
+    const { listInstalledPlugins } = await import(
+      "../services/plugin-installer.js"
+    );
     try {
       const [registry, installed] = await Promise.all([
         getRegistryPlugins(),
@@ -2954,7 +3325,13 @@ async function handleRequest(
       // Keep first-load latency bounded while still enriching the most likely picks.
       const recencyBudget = Math.min(25, plugins.length);
       const enriched = await Promise.all(
-        plugins.map((plugin, index) => enrichRegistryPlugin(plugin, installedSet.has(plugin.name), index < recencyBudget)),
+        plugins.map((plugin, index) =>
+          enrichRegistryPlugin(
+            plugin,
+            installedSet.has(plugin.name),
+            index < recencyBudget,
+          ),
+        ),
       );
 
       json(res, { count: enriched.length, plugins: enriched });
@@ -2978,7 +3355,9 @@ async function handleRequest(
       pathname.slice("/api/registry/plugins/".length),
     );
     const { getPluginInfo } = await import("../services/registry-client.js");
-    const { listInstalledPlugins } = await import("../services/plugin-installer.js");
+    const { listInstalledPlugins } = await import(
+      "../services/plugin-installer.js"
+    );
 
     try {
       const info = await getPluginInfo(name);
@@ -2988,7 +3367,11 @@ async function handleRequest(
       }
       const installed = await listInstalledPlugins();
       const installedSet = new Set(installed.map((entry) => entry.name));
-      const enriched = await enrichRegistryPlugin(info as RegistryPluginLike, installedSet.has(info.name), true);
+      const enriched = await enrichRegistryPlugin(
+        info as RegistryPluginLike,
+        installedSet.has(info.name),
+        true,
+      );
       json(res, { plugin: enriched });
     } catch (err) {
       error(
@@ -3537,10 +3920,14 @@ async function handleRequest(
   // ── GET /api/skills/marketplace/search?q=... ─────────────────────────
   if (method === "GET" && pathname === "/api/skills/marketplace/search") {
     const query = (url.searchParams.get("q") ?? "").trim();
-    const aiMode = ["1", "true", "yes"].includes((url.searchParams.get("ai") ?? "").toLowerCase());
+    const aiMode = ["1", "true", "yes"].includes(
+      (url.searchParams.get("ai") ?? "").toLowerCase(),
+    );
     const limitParam = url.searchParams.get("limit");
     const rawLimit = limitParam ? Number(limitParam) : 20;
-    const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(rawLimit, 50)) : 20;
+    const limit = Number.isFinite(rawLimit)
+      ? Math.max(1, Math.min(rawLimit, 50))
+      : 20;
 
     if (!query) {
       error(res, "Query parameter 'q' is required", 400);
@@ -3548,11 +3935,20 @@ async function handleRequest(
     }
 
     try {
-      const { searchSkillsMarketplace } = await import("../services/skill-marketplace.js");
-      const results = await searchSkillsMarketplace(query, { limit, aiSearch: aiMode });
+      const { searchSkillsMarketplace } = await import(
+        "../services/skill-marketplace.js"
+      );
+      const results = await searchSkillsMarketplace(query, {
+        limit,
+        aiSearch: aiMode,
+      });
       json(res, { query, count: results.length, results });
     } catch (err) {
-      error(res, `Skills marketplace search failed: ${err instanceof Error ? err.message : String(err)}`, 502);
+      error(
+        res,
+        `Skills marketplace search failed: ${err instanceof Error ? err.message : String(err)}`,
+        502,
+      );
     }
     return;
   }
@@ -3560,12 +3956,20 @@ async function handleRequest(
   // ── GET /api/skills/marketplace/installed ─────────────────────────────
   if (method === "GET" && pathname === "/api/skills/marketplace/installed") {
     try {
-      const { listInstalledMarketplaceSkills } = await import("../services/skill-marketplace.js");
-      const workspaceDir = state.config.agents?.defaults?.workspace ?? resolveDefaultAgentWorkspaceDir();
+      const { listInstalledMarketplaceSkills } = await import(
+        "../services/skill-marketplace.js"
+      );
+      const workspaceDir =
+        state.config.agents?.defaults?.workspace ??
+        resolveDefaultAgentWorkspaceDir();
       const skills = await listInstalledMarketplaceSkills(workspaceDir);
       json(res, { count: skills.length, skills });
     } catch (err) {
-      error(res, `Failed to list installed skills: ${err instanceof Error ? err.message : String(err)}`, 500);
+      error(
+        res,
+        `Failed to list installed skills: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      );
     }
     return;
   }
@@ -3589,8 +3993,12 @@ async function handleRequest(
     }
 
     try {
-      const { installMarketplaceSkill } = await import("../services/skill-marketplace.js");
-      const workspaceDir = state.config.agents?.defaults?.workspace ?? resolveDefaultAgentWorkspaceDir();
+      const { installMarketplaceSkill } = await import(
+        "../services/skill-marketplace.js"
+      );
+      const workspaceDir =
+        state.config.agents?.defaults?.workspace ??
+        resolveDefaultAgentWorkspaceDir();
       const installed = await installMarketplaceSkill(workspaceDir, {
         githubUrl: body.githubUrl,
         repository: body.repository,
@@ -3601,7 +4009,11 @@ async function handleRequest(
       });
 
       if (body.autoRefresh !== false) {
-        state.skills = await discoverSkills(workspaceDir, state.config, state.runtime);
+        state.skills = await discoverSkills(
+          workspaceDir,
+          state.config,
+          state.runtime,
+        );
       }
 
       json(res, {
@@ -3610,14 +4022,21 @@ async function handleRequest(
         refreshedSkills: body.autoRefresh !== false ? state.skills : undefined,
       });
     } catch (err) {
-      error(res, `Skill install failed: ${err instanceof Error ? err.message : String(err)}`, 422);
+      error(
+        res,
+        `Skill install failed: ${err instanceof Error ? err.message : String(err)}`,
+        422,
+      );
     }
     return;
   }
 
   // ── POST /api/skills/marketplace/uninstall ────────────────────────────
   if (method === "POST" && pathname === "/api/skills/marketplace/uninstall") {
-    const body = await readJsonBody<{ id?: string; autoRefresh?: boolean }>(req, res);
+    const body = await readJsonBody<{ id?: string; autoRefresh?: boolean }>(
+      req,
+      res,
+    );
     if (!body) return;
 
     const skillId = body.id?.trim();
@@ -3627,12 +4046,20 @@ async function handleRequest(
     }
 
     try {
-      const { uninstallMarketplaceSkill } = await import("../services/skill-marketplace.js");
-      const workspaceDir = state.config.agents?.defaults?.workspace ?? resolveDefaultAgentWorkspaceDir();
+      const { uninstallMarketplaceSkill } = await import(
+        "../services/skill-marketplace.js"
+      );
+      const workspaceDir =
+        state.config.agents?.defaults?.workspace ??
+        resolveDefaultAgentWorkspaceDir();
       const removed = await uninstallMarketplaceSkill(workspaceDir, skillId);
 
       if (body.autoRefresh !== false) {
-        state.skills = await discoverSkills(workspaceDir, state.config, state.runtime);
+        state.skills = await discoverSkills(
+          workspaceDir,
+          state.config,
+          state.runtime,
+        );
       }
 
       json(res, {
@@ -3641,7 +4068,11 @@ async function handleRequest(
         refreshedSkills: body.autoRefresh !== false ? state.skills : undefined,
       });
     } catch (err) {
-      error(res, `Skill uninstall failed: ${err instanceof Error ? err.message : String(err)}`, 422);
+      error(
+        res,
+        `Skill uninstall failed: ${err instanceof Error ? err.message : String(err)}`,
+        422,
+      );
     }
     return;
   }
@@ -3687,27 +4118,42 @@ async function handleRequest(
   if (method === "GET" && pathname === "/api/mcp/marketplace/search") {
     const query = url.searchParams.get("q") || "";
     const rawLimit = parseInt(url.searchParams.get("limit") || "30", 10);
-    const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(rawLimit, 50)) : 30;
+    const limit = Number.isFinite(rawLimit)
+      ? Math.max(1, Math.min(rawLimit, 50))
+      : 30;
 
     try {
-      const { searchMcpMarketplace } = await import("../services/mcp-marketplace.js");
+      const { searchMcpMarketplace } = await import(
+        "../services/mcp-marketplace.js"
+      );
       const { results } = await searchMcpMarketplace(query || undefined, limit);
       json(res, { ok: true, results });
     } catch (err) {
-      error(res, `MCP search failed: ${err instanceof Error ? err.message : String(err)}`, 500);
+      error(
+        res,
+        `MCP search failed: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      );
     }
     return;
   }
 
   // ── GET /api/mcp/marketplace/details/:name ─────────────────────────────────
-  if (method === "GET" && pathname.startsWith("/api/mcp/marketplace/details/")) {
-    const name = decodeURIComponent(pathname.slice("/api/mcp/marketplace/details/".length));
+  if (
+    method === "GET" &&
+    pathname.startsWith("/api/mcp/marketplace/details/")
+  ) {
+    const name = decodeURIComponent(
+      pathname.slice("/api/mcp/marketplace/details/".length),
+    );
     if (!name) {
       error(res, "Server name is required", 400);
       return;
     }
     try {
-      const { getMcpServerDetails } = await import("../services/mcp-marketplace.js");
+      const { getMcpServerDetails } = await import(
+        "../services/mcp-marketplace.js"
+      );
       const details = await getMcpServerDetails(name);
       if (!details) {
         error(res, `Server "${name}" not found in registry`, 404);
@@ -3715,7 +4161,11 @@ async function handleRequest(
       }
       json(res, { ok: true, server: details });
     } catch (err) {
-      error(res, `Failed to fetch server details: ${err instanceof Error ? err.message : String(err)}`, 500);
+      error(
+        res,
+        `Failed to fetch server details: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      );
     }
     return;
   }
@@ -3724,17 +4174,24 @@ async function handleRequest(
   // Returns the current MCP server configuration
   if (method === "GET" && pathname === "/api/mcp/config") {
     // MCP config is stored in state.config.plugins["@elizaos/plugin-mcp"].mcp
-    const pluginSettings = (state.config.plugins as Record<string, unknown> | undefined)?.["@elizaos/plugin-mcp"] as Record<string, unknown> | undefined;
+    const pluginSettings = (
+      state.config.plugins as Record<string, unknown> | undefined
+    )?.["@elizaos/plugin-mcp"] as Record<string, unknown> | undefined;
     const mcpConfigRaw = pluginSettings?.mcp;
 
     let servers: Record<string, unknown> = {};
     if (typeof mcpConfigRaw === "string") {
       try {
-        const parsed = JSON.parse(mcpConfigRaw) as { servers?: Record<string, unknown> };
+        const parsed = JSON.parse(mcpConfigRaw) as {
+          servers?: Record<string, unknown>;
+        };
         servers = parsed.servers || {};
-      } catch { /* ignore parse errors */ }
+      } catch {
+        /* ignore parse errors */
+      }
     } else if (typeof mcpConfigRaw === "object" && mcpConfigRaw !== null) {
-      servers = (mcpConfigRaw as { servers?: Record<string, unknown> }).servers || {};
+      servers =
+        (mcpConfigRaw as { servers?: Record<string, unknown> }).servers || {};
     }
 
     json(res, { ok: true, servers });
@@ -3744,12 +4201,23 @@ async function handleRequest(
   // ── PUT /api/mcp/config ────────────────────────────────────────────────────
   // Replace entire MCP config
   if (method === "PUT" && pathname === "/api/mcp/config") {
-    const body = await readJsonBody<{ servers?: Record<string, Record<string, unknown>> }>(req, res);
+    const body = await readJsonBody<{
+      servers?: Record<string, Record<string, unknown>>;
+    }>(req, res);
     if (!body) return;
 
     // Security: validate each server the same way POST /api/mcp/config/server does
     const validTypes = ["stdio", "http", "streamable-http", "sse"];
-    const allowedCommands = ["npx", "node", "docker", "deno", "bun", "uvx", "python", "python3"];
+    const allowedCommands = [
+      "npx",
+      "node",
+      "docker",
+      "deno",
+      "bun",
+      "uvx",
+      "python",
+      "python3",
+    ];
     const servers = body.servers ?? {};
     for (const [name, cfg] of Object.entries(servers)) {
       if (!cfg || typeof cfg !== "object") {
@@ -3758,40 +4226,62 @@ async function handleRequest(
       }
       const cfgType = cfg.type;
       if (typeof cfgType !== "string" || !validTypes.includes(cfgType)) {
-        error(res, `Server "${name}": config.type must be one of: ${validTypes.join(", ")}`, 400);
+        error(
+          res,
+          `Server "${name}": config.type must be one of: ${validTypes.join(", ")}`,
+          400,
+        );
         return;
       }
       if (cfgType === "stdio") {
         const cmd = cfg.command;
         if (typeof cmd !== "string" || !cmd.trim()) {
-          error(res, `Server "${name}": config.command required for stdio`, 400);
+          error(
+            res,
+            `Server "${name}": config.command required for stdio`,
+            400,
+          );
           return;
         }
         const baseName = cmd.trim().split("/").pop()?.split("\\").pop() ?? "";
         if (!allowedCommands.includes(baseName)) {
-          error(res, `Server "${name}": command must be one of: ${allowedCommands.join(", ")}`, 400);
+          error(
+            res,
+            `Server "${name}": command must be one of: ${allowedCommands.join(", ")}`,
+            400,
+          );
           return;
         }
       } else {
         const serverUrl = cfg.url;
         if (typeof serverUrl !== "string" || !serverUrl.trim()) {
-          error(res, `Server "${name}": config.url required for remote servers`, 400);
+          error(
+            res,
+            `Server "${name}": config.url required for remote servers`,
+            400,
+          );
           return;
         }
-        try { new URL(serverUrl as string); } catch {
+        try {
+          new URL(serverUrl as string);
+        } catch {
           error(res, `Server "${name}": config.url must be a valid URL`, 400);
           return;
         }
       }
     }
 
-    if (!state.config.plugins) state.config.plugins = {} as unknown as typeof state.config.plugins;
+    if (!state.config.plugins)
+      state.config.plugins = {} as unknown as typeof state.config.plugins;
     const plugins = state.config.plugins as Record<string, unknown>;
     if (!plugins["@elizaos/plugin-mcp"]) {
       plugins["@elizaos/plugin-mcp"] = {};
     }
 
-    const pluginConfig = plugins["@elizaos/plugin-mcp"] as Record<string, unknown>;
+    const pluginConfig = plugins["@elizaos/plugin-mcp"] as Record<
+      string,
+      unknown
+    >;
     pluginConfig.mcp = JSON.stringify({ servers });
     saveMilaidyConfig(state.config);
 
@@ -3802,7 +4292,10 @@ async function handleRequest(
   // ── POST /api/mcp/config/server ────────────────────────────────────────────
   // Add or update a single MCP server
   if (method === "POST" && pathname === "/api/mcp/config/server") {
-    const body = await readJsonBody<{ name: string; config: Record<string, unknown> }>(req, res);
+    const body = await readJsonBody<{
+      name: string;
+      config: Record<string, unknown>;
+    }>(req, res);
     if (!body) return;
 
     const serverName = typeof body.name === "string" ? body.name.trim() : "";
@@ -3831,10 +4324,23 @@ async function handleRequest(
         return;
       }
       // Security: Only allow known safe commands for MCP stdio servers
-      const allowedCommands = ["npx", "node", "docker", "deno", "bun", "uvx", "python", "python3"];
+      const allowedCommands = [
+        "npx",
+        "node",
+        "docker",
+        "deno",
+        "bun",
+        "uvx",
+        "python",
+        "python3",
+      ];
       const baseName = cmd.trim().split("/").pop()?.split("\\").pop() ?? "";
       if (!allowedCommands.includes(baseName)) {
-        error(res, `config.command must be one of: ${allowedCommands.join(", ")}`, 400);
+        error(
+          res,
+          `config.command must be one of: ${allowedCommands.join(", ")}`,
+          400,
+        );
         return;
       }
     } else {
@@ -3843,28 +4349,43 @@ async function handleRequest(
         error(res, "config.url is required for remote servers", 400);
         return;
       }
-      try { new URL(url as string); } catch {
+      try {
+        new URL(url as string);
+      } catch {
         error(res, "config.url must be a valid URL", 400);
         return;
       }
     }
 
     // Get current config
-    if (!state.config.plugins) state.config.plugins = {} as unknown as typeof state.config.plugins;
+    if (!state.config.plugins)
+      state.config.plugins = {} as unknown as typeof state.config.plugins;
     const mcpPlugins = state.config.plugins as Record<string, unknown>;
     if (!mcpPlugins["@elizaos/plugin-mcp"]) {
       mcpPlugins["@elizaos/plugin-mcp"] = {};
     }
-    const pluginConfig = mcpPlugins["@elizaos/plugin-mcp"] as Record<string, unknown>;
+    const pluginConfig = mcpPlugins["@elizaos/plugin-mcp"] as Record<
+      string,
+      unknown
+    >;
 
     let servers: Record<string, unknown> = {};
     if (typeof pluginConfig.mcp === "string") {
       try {
-        const parsed = JSON.parse(pluginConfig.mcp) as { servers?: Record<string, unknown> };
+        const parsed = JSON.parse(pluginConfig.mcp) as {
+          servers?: Record<string, unknown>;
+        };
         servers = parsed.servers || {};
-      } catch { /* ignore */ }
-    } else if (typeof pluginConfig.mcp === "object" && pluginConfig.mcp !== null) {
-      servers = (pluginConfig.mcp as { servers?: Record<string, unknown> }).servers || {};
+      } catch {
+        /* ignore */
+      }
+    } else if (
+      typeof pluginConfig.mcp === "object" &&
+      pluginConfig.mcp !== null
+    ) {
+      servers =
+        (pluginConfig.mcp as { servers?: Record<string, unknown> }).servers ||
+        {};
     }
 
     // Add/update server
@@ -3879,14 +4400,18 @@ async function handleRequest(
   // ── DELETE /api/mcp/config/server/:name ────────────────────────────────────
   // Remove a single MCP server
   if (method === "DELETE" && pathname.startsWith("/api/mcp/config/server/")) {
-    const serverName = decodeURIComponent(pathname.slice("/api/mcp/config/server/".length));
+    const serverName = decodeURIComponent(
+      pathname.slice("/api/mcp/config/server/".length),
+    );
     if (!serverName) {
       error(res, "Server name is required", 400);
       return;
     }
 
     // Get current config
-    const pluginConfig = (state.config.plugins as Record<string, unknown> | undefined)?.["@elizaos/plugin-mcp"] as Record<string, unknown> | undefined;
+    const pluginConfig = (
+      state.config.plugins as Record<string, unknown> | undefined
+    )?.["@elizaos/plugin-mcp"] as Record<string, unknown> | undefined;
     if (!pluginConfig) {
       json(res, { ok: true }); // Already doesn't exist
       return;
@@ -3895,11 +4420,20 @@ async function handleRequest(
     let servers: Record<string, unknown> = {};
     if (typeof pluginConfig.mcp === "string") {
       try {
-        const parsed = JSON.parse(pluginConfig.mcp) as { servers?: Record<string, unknown> };
+        const parsed = JSON.parse(pluginConfig.mcp) as {
+          servers?: Record<string, unknown>;
+        };
         servers = parsed.servers || {};
-      } catch { /* ignore */ }
-    } else if (typeof pluginConfig.mcp === "object" && pluginConfig.mcp !== null) {
-      servers = (pluginConfig.mcp as { servers?: Record<string, unknown> }).servers || {};
+      } catch {
+        /* ignore */
+      }
+    } else if (
+      typeof pluginConfig.mcp === "object" &&
+      pluginConfig.mcp !== null
+    ) {
+      servers =
+        (pluginConfig.mcp as { servers?: Record<string, unknown> }).servers ||
+        {};
     }
 
     // Remove server
@@ -3929,7 +4463,11 @@ async function handleRequest(
       }));
       json(res, { ok: true, servers });
     } catch (err) {
-      error(res, `Failed to get MCP status: ${err instanceof Error ? err.message : String(err)}`, 500);
+      error(
+        res,
+        `Failed to get MCP status: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      );
     }
     return;
   }
@@ -4578,19 +5116,8 @@ export async function startApiServer(opts?: {
     chatRoomId: null,
     chatUserId: null,
     shareInbox: [],
+    cloudManager: null,
   };
-
-  // ── Cloud Manager initialisation ──────────────────────────────────────
-  if (config.cloud?.enabled && config.cloud?.apiKey) {
-    const mgr = new CloudManager(config.cloud, {
-      onStatusChange: (s) => {
-        addLog("info", `Cloud connection status: ${s}`, "cloud");
-      },
-    });
-    mgr.init();
-    state.cloudManager = mgr;
-    addLog("info", "Cloud manager initialised (ELIZA Cloud enabled)", "cloud");
-  }
 
   const addLog = (level: string, message: string, source = "system") => {
     let resolvedSource = source;
@@ -4606,6 +5133,18 @@ export async function startApiServer(opts?: {
     });
     if (state.logBuffer.length > 1000) state.logBuffer.shift();
   };
+
+  // ── Cloud Manager initialisation ──────────────────────────────────────
+  if (config.cloud?.enabled && config.cloud?.apiKey) {
+    const mgr = new CloudManager(config.cloud, {
+      onStatusChange: (s) => {
+        addLog("info", `Cloud connection status: ${s}`, "cloud");
+      },
+    });
+    mgr.init();
+    state.cloudManager = mgr;
+    addLog("info", "Cloud manager initialised (ELIZA Cloud enabled)", "cloud");
+  }
 
   addLog(
     "info",

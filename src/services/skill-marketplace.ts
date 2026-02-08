@@ -50,7 +50,10 @@ function stateDirBase(): string {
 
 function safeName(raw: string): string {
   const trimmed = raw.trim();
-  const slug = trimmed.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
+  const slug = trimmed
+    .replace(/[^a-zA-Z0-9._-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
   if (!slug) throw new Error("Invalid skill name");
   if (!VALID_NAME.test(slug)) throw new Error(`Invalid skill name: ${raw}`);
   return slug;
@@ -68,7 +71,11 @@ function normalizeRepo(raw: string): string {
   return repo;
 }
 
-function parseGithubUrl(rawUrl: string): { repository: string; path: string | null; ref: string | null } {
+function parseGithubUrl(rawUrl: string): {
+  repository: string;
+  path: string | null;
+  ref: string | null;
+} {
   let url: URL;
   try {
     url = new URL(rawUrl);
@@ -101,15 +108,24 @@ function installationRoot(workspaceDir: string): string {
 }
 
 function installsRecordPath(workspaceDir: string): string {
-  return path.join(workspaceDir, "skills", ".cache", "marketplace-installs.json");
+  return path.join(
+    workspaceDir,
+    "skills",
+    ".cache",
+    "marketplace-installs.json",
+  );
 }
 
 async function ensureInstallDirs(workspaceDir: string): Promise<void> {
   await fs.mkdir(installationRoot(workspaceDir), { recursive: true });
-  await fs.mkdir(path.dirname(installsRecordPath(workspaceDir)), { recursive: true });
+  await fs.mkdir(path.dirname(installsRecordPath(workspaceDir)), {
+    recursive: true,
+  });
 }
 
-async function readInstallRecords(workspaceDir: string): Promise<Record<string, InstalledMarketplaceSkill>> {
+async function readInstallRecords(
+  workspaceDir: string,
+): Promise<Record<string, InstalledMarketplaceSkill>> {
   try {
     const raw = await fs.readFile(installsRecordPath(workspaceDir), "utf-8");
     const parsed = JSON.parse(raw) as Record<string, InstalledMarketplaceSkill>;
@@ -125,7 +141,11 @@ async function writeInstallRecords(
   records: Record<string, InstalledMarketplaceSkill>,
 ): Promise<void> {
   await ensureInstallDirs(workspaceDir);
-  await fs.writeFile(installsRecordPath(workspaceDir), JSON.stringify(records, null, 2), "utf-8");
+  await fs.writeFile(
+    installsRecordPath(workspaceDir),
+    JSON.stringify(records, null, 2),
+    "utf-8",
+  );
 }
 
 function normalizeTags(raw: unknown): string[] {
@@ -173,7 +193,12 @@ function inferRepository(skill: Record<string, unknown>): string | null {
 }
 
 function inferPath(skill: Record<string, unknown>): string | null {
-  const candidates = [skill.path, skill.skillPath, skill.installPath, skill.directory];
+  const candidates = [
+    skill.path,
+    skill.skillPath,
+    skill.installPath,
+    skill.directory,
+  ];
   for (const value of candidates) {
     if (typeof value !== "string") continue;
     const cleaned = value.replace(/^\/+/, "").trim();
@@ -220,13 +245,20 @@ export async function searchSkillsMarketplace(
 ): Promise<SkillsMarketplaceSearchItem[]> {
   const apiKey = process.env.SKILLSMP_API_KEY?.trim();
   if (!apiKey) {
-    throw new Error("SKILLSMP_API_KEY is not set. Add it to enable Skills marketplace search.");
+    throw new Error(
+      "SKILLSMP_API_KEY is not set. Add it to enable Skills marketplace search.",
+    );
   }
 
-  const endpoint = opts?.aiSearch ? "/api/v1/skills/ai-search" : "/api/v1/skills/search";
+  const endpoint = opts?.aiSearch
+    ? "/api/v1/skills/ai-search"
+    : "/api/v1/skills/search";
   const url = new URL(`${SKILLSMP_BASE_URL}${endpoint}`);
   if (query.trim()) url.searchParams.set("q", query.trim());
-  url.searchParams.set("limit", String(Math.max(1, Math.min(opts?.limit ?? 20, 50))));
+  url.searchParams.set(
+    "limit",
+    String(Math.max(1, Math.min(opts?.limit ?? 20, 50))),
+  );
 
   const resp = await fetch(url, {
     headers: {
@@ -235,11 +267,18 @@ export async function searchSkillsMarketplace(
     },
   });
 
-  const payload = await resp.json().catch(() => ({})) as Record<string, unknown>;
+  const payload = (await resp.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
 
   if (!resp.ok) {
     const msg = (payload.error as Record<string, unknown> | undefined)?.message;
-    throw new Error(typeof msg === "string" && msg ? msg : `Skills marketplace request failed (${resp.status})`);
+    throw new Error(
+      typeof msg === "string" && msg
+        ? msg
+        : `Skills marketplace request failed (${resp.status})`,
+    );
   }
 
   const buckets = [payload.results, payload.skills, payload.data];
@@ -249,11 +288,19 @@ export async function searchSkillsMarketplace(
       list = bucket;
       break;
     }
-    if (bucket && typeof bucket === "object" && Array.isArray((bucket as Record<string, unknown>).results)) {
+    if (
+      bucket &&
+      typeof bucket === "object" &&
+      Array.isArray((bucket as Record<string, unknown>).results)
+    ) {
       list = (bucket as Record<string, unknown>).results as unknown[];
       break;
     }
-    if (bucket && typeof bucket === "object" && Array.isArray((bucket as Record<string, unknown>).skills)) {
+    if (
+      bucket &&
+      typeof bucket === "object" &&
+      Array.isArray((bucket as Record<string, unknown>).skills)
+    ) {
       list = (bucket as Record<string, unknown>).skills as unknown[];
       break;
     }
@@ -269,7 +316,10 @@ export async function searchSkillsMarketplace(
     const description = inferDescription(skill);
     const skillPath = inferPath(skill);
     const scoreValue = skill.score;
-    const score = typeof scoreValue === "number" && Number.isFinite(scoreValue) ? scoreValue : null;
+    const score =
+      typeof scoreValue === "number" && Number.isFinite(scoreValue)
+        ? scoreValue
+        : null;
 
     out.push({
       id: String(skill.id ?? skill.slug ?? name),
@@ -298,8 +348,24 @@ async function runGitCloneSubset(
   const repoUrl = `https://github.com/${repository}.git`;
 
   try {
-    await execFileAsync("git", ["clone", "--depth", "1", "--filter=blob:none", "--sparse", "--branch", ref, repoUrl, cloneDir]);
-    await execFileAsync("git", ["-C", cloneDir, "sparse-checkout", "set", skillPath]);
+    await execFileAsync("git", [
+      "clone",
+      "--depth",
+      "1",
+      "--filter=blob:none",
+      "--sparse",
+      "--branch",
+      ref,
+      repoUrl,
+      cloneDir,
+    ]);
+    await execFileAsync("git", [
+      "-C",
+      cloneDir,
+      "sparse-checkout",
+      "set",
+      skillPath,
+    ]);
 
     const sourceDir = path.join(cloneDir, skillPath);
     const stat = await fs.stat(sourceDir).catch(() => null);
@@ -308,13 +374,23 @@ async function runGitCloneSubset(
     }
 
     await fs.mkdir(path.dirname(targetDir), { recursive: true });
-    await fs.cp(sourceDir, targetDir, { recursive: true, errorOnExist: true, force: false });
+    await fs.cp(sourceDir, targetDir, {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+    });
   } finally {
-    await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => undefined);
+    await fs
+      .rm(tmpBase, { recursive: true, force: true })
+      .catch(() => undefined);
   }
 }
 
-async function resolveSkillPathInRepo(repository: string, ref: string, requestedPath: string | null): Promise<string> {
+async function resolveSkillPathInRepo(
+  repository: string,
+  ref: string,
+  requestedPath: string | null,
+): Promise<string> {
   if (requestedPath) return requestedPath.replace(/^\/+/, "");
 
   const tmpBase = await fs.mkdtemp(path.join(stateDirBase(), "skill-probe-"));
@@ -322,25 +398,47 @@ async function resolveSkillPathInRepo(repository: string, ref: string, requested
   const repoUrl = `https://github.com/${repository}.git`;
 
   try {
-    await execFileAsync("git", ["clone", "--depth", "1", "--filter=blob:none", "--sparse", "--branch", ref, repoUrl, cloneDir]);
+    await execFileAsync("git", [
+      "clone",
+      "--depth",
+      "1",
+      "--filter=blob:none",
+      "--sparse",
+      "--branch",
+      ref,
+      repoUrl,
+      cloneDir,
+    ]);
     await execFileAsync("git", ["-C", cloneDir, "sparse-checkout", "set", "."]);
 
     const rootSkill = path.join(cloneDir, "SKILL.md");
-    const hasRoot = await fs.stat(rootSkill).then((s) => s.isFile()).catch(() => false);
+    const hasRoot = await fs
+      .stat(rootSkill)
+      .then((s) => s.isFile())
+      .catch(() => false);
     if (hasRoot) return ".";
 
     const skillsDir = path.join(cloneDir, "skills");
-    const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch(() => []);
+    const entries = await fs
+      .readdir(skillsDir, { withFileTypes: true })
+      .catch(() => []);
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const candidate = path.join(skillsDir, entry.name, "SKILL.md");
-      const exists = await fs.stat(candidate).then((s) => s.isFile()).catch(() => false);
+      const exists = await fs
+        .stat(candidate)
+        .then((s) => s.isFile())
+        .catch(() => false);
       if (exists) return path.posix.join("skills", entry.name);
     }
 
-    throw new Error("Could not determine skill path automatically. Provide an explicit GitHub tree URL or path.");
+    throw new Error(
+      "Could not determine skill path automatically. Provide an explicit GitHub tree URL or path.",
+    );
   } finally {
-    await fs.rm(tmpBase, { recursive: true, force: true }).catch(() => undefined);
+    await fs
+      .rm(tmpBase, { recursive: true, force: true })
+      .catch(() => undefined);
   }
 }
 
@@ -350,8 +448,12 @@ export async function installMarketplaceSkill(
 ): Promise<InstalledMarketplaceSkill> {
   await ensureInstallDirs(workspaceDir);
 
-  let repository = input.repository?.trim() ? normalizeRepo(input.repository) : null;
-  let requestedPath = input.path?.trim() ? input.path.trim().replace(/^\/+/, "") : null;
+  let repository = input.repository?.trim()
+    ? normalizeRepo(input.repository)
+    : null;
+  let requestedPath = input.path?.trim()
+    ? input.path.trim().replace(/^\/+/, "")
+    : null;
   let gitRef = "main";
 
   if (input.githubUrl?.trim()) {
@@ -365,12 +467,23 @@ export async function installMarketplaceSkill(
     throw new Error("Install requires a repository or GitHub URL");
   }
 
-  const skillPath = await resolveSkillPathInRepo(repository, gitRef, requestedPath);
-  const baseName = input.name?.trim() || path.posix.basename(skillPath === "." ? repository.split("/")[1] : skillPath);
+  const skillPath = await resolveSkillPathInRepo(
+    repository,
+    gitRef,
+    requestedPath,
+  );
+  const baseName =
+    input.name?.trim() ||
+    path.posix.basename(
+      skillPath === "." ? repository.split("/")[1] : skillPath,
+    );
   const id = safeName(baseName);
   const targetDir = path.join(installationRoot(workspaceDir), id);
 
-  const exists = await fs.stat(targetDir).then(() => true).catch(() => false);
+  const exists = await fs
+    .stat(targetDir)
+    .then(() => true)
+    .catch(() => false);
   if (exists) {
     throw new Error(`Skill "${id}" is already installed`);
   }
@@ -378,9 +491,14 @@ export async function installMarketplaceSkill(
   await runGitCloneSubset(repository, gitRef, skillPath, targetDir);
 
   const skillDoc = path.join(targetDir, "SKILL.md");
-  const validSkill = await fs.stat(skillDoc).then((s) => s.isFile()).catch(() => false);
+  const validSkill = await fs
+    .stat(skillDoc)
+    .then((s) => s.isFile())
+    .catch(() => false);
   if (!validSkill) {
-    await fs.rm(targetDir, { recursive: true, force: true }).catch(() => undefined);
+    await fs
+      .rm(targetDir, { recursive: true, force: true })
+      .catch(() => undefined);
     throw new Error("Installed path does not contain SKILL.md");
   }
 
@@ -400,18 +518,25 @@ export async function installMarketplaceSkill(
   records[id] = record;
   await writeInstallRecords(workspaceDir, records);
 
-  logger.info(`[skills-marketplace] Installed ${record.id} from ${record.repository}:${record.path}`);
+  logger.info(
+    `[skills-marketplace] Installed ${record.id} from ${record.repository}:${record.path}`,
+  );
   return record;
 }
 
-export async function listInstalledMarketplaceSkills(workspaceDir: string): Promise<InstalledMarketplaceSkill[]> {
+export async function listInstalledMarketplaceSkills(
+  workspaceDir: string,
+): Promise<InstalledMarketplaceSkill[]> {
   const records = await readInstallRecords(workspaceDir);
   const values = Object.values(records);
   values.sort((a, b) => b.installedAt.localeCompare(a.installedAt));
   return values;
 }
 
-export async function uninstallMarketplaceSkill(workspaceDir: string, skillId: string): Promise<InstalledMarketplaceSkill> {
+export async function uninstallMarketplaceSkill(
+  workspaceDir: string,
+  skillId: string,
+): Promise<InstalledMarketplaceSkill> {
   const id = safeName(skillId);
   const records = await readInstallRecords(workspaceDir);
   const existing = records[id];
@@ -422,7 +547,10 @@ export async function uninstallMarketplaceSkill(workspaceDir: string, skillId: s
   // Security: ensure installPath is within the expected marketplace directory
   const expectedRoot = path.resolve(installationRoot(workspaceDir));
   const resolvedPath = path.resolve(existing.installPath);
-  if (!resolvedPath.startsWith(`${expectedRoot}${path.sep}`) || resolvedPath === expectedRoot) {
+  if (
+    !resolvedPath.startsWith(`${expectedRoot}${path.sep}`) ||
+    resolvedPath === expectedRoot
+  ) {
     throw new Error(`Refusing to remove skill outside ${expectedRoot}`);
   }
 

@@ -276,7 +276,7 @@ jobs:
           tag_name: ${{ needs.prepare.outputs.tag }}
           name: Milaidy ${{ needs.prepare.outputs.tag }}
           draft: ${{ inputs.draft || false }}
-          prerelease: ${{ contains(needs.prepare.outputs.version, 'alpha') || contains(needs.prepare.outputs.version, 'beta') || contains(needs.prepare.outputs.version, 'rc') }}
+          prerelease: ${{ contains(needs.prepare.outputs.version, 'alpha') || contains(needs.prepare.outputs.version, 'beta') || contains(needs.prepare.outputs.version, 'rc') || contains(needs.prepare.outputs.version, 'nightly') }}
           generate_release_notes: true
           files: release-files/*
         env:

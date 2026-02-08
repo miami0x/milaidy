@@ -12,7 +12,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudRuntimeProxy } from "./cloud-proxy.js";
 import type { ElizaCloudClient } from "./bridge-client.js";
 
-function createMockClient(overrides: Partial<ElizaCloudClient> = {}): ElizaCloudClient {
+function createMockClient(
+  overrides: Partial<ElizaCloudClient> = {},
+): ElizaCloudClient {
   return {
     sendMessage: vi.fn().mockResolvedValue("Hello from cloud"),
     sendMessageStream: vi.fn().mockImplementation(async function* () {
@@ -20,7 +22,9 @@ function createMockClient(overrides: Partial<ElizaCloudClient> = {}): ElizaCloud
       yield { type: "chunk", data: { text: "world" } };
       yield { type: "done", data: {} };
     }),
-    getAgent: vi.fn().mockResolvedValue({ id: "a1", agentName: "TestBot", status: "running" }),
+    getAgent: vi
+      .fn()
+      .mockResolvedValue({ id: "a1", agentName: "TestBot", status: "running" }),
     heartbeat: vi.fn().mockResolvedValue(true),
     ...overrides,
   } as unknown as ElizaCloudClient;
@@ -38,7 +42,11 @@ describe("CloudRuntimeProxy", () => {
 
     const result = await proxy.handleChatMessage("Hi there");
     expect(result).toBe("Hello from cloud");
-    expect(client.sendMessage).toHaveBeenCalledWith("a1", "Hi there", "web-chat");
+    expect(client.sendMessage).toHaveBeenCalledWith(
+      "a1",
+      "Hi there",
+      "web-chat",
+    );
   });
 
   it("handleChatMessage passes custom roomId", async () => {
@@ -53,7 +61,9 @@ describe("CloudRuntimeProxy", () => {
     const proxy = new CloudRuntimeProxy(createMockClient(), "a1", "Bot");
 
     const chunks: string[] = [];
-    for await (const chunk of proxy.handleChatMessageStream("Tell me something")) {
+    for await (const chunk of proxy.handleChatMessageStream(
+      "Tell me something",
+    )) {
       chunks.push(chunk);
     }
 

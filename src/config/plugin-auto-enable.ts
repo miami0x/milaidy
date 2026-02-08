@@ -215,7 +215,9 @@ export function applyPluginAutoEnable(
           featureConfig.enabled !== false);
       if (!isEnabled) continue;
       const pluginId = pluginName.includes("/plugin-")
-        ? pluginName.slice(pluginName.lastIndexOf("/plugin-") + "/plugin-".length)
+        ? pluginName.slice(
+            pluginName.lastIndexOf("/plugin-") + "/plugin-".length,
+          )
         : pluginName;
       if (pluginsConfig.entries[pluginId]?.enabled === false) continue;
       addToAllowlist(

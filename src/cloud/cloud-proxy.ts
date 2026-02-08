@@ -20,8 +20,15 @@ export class CloudRuntimeProxy {
     return this.client.sendMessage(this.agentId, text, roomId);
   }
 
-  async *handleChatMessageStream(text: string, roomId = "web-chat"): AsyncGenerator<string> {
-    for await (const event of this.client.sendMessageStream(this.agentId, text, roomId)) {
+  async *handleChatMessageStream(
+    text: string,
+    roomId = "web-chat",
+  ): AsyncGenerator<string> {
+    for await (const event of this.client.sendMessageStream(
+      this.agentId,
+      text,
+      roomId,
+    )) {
       if (event.type === "chunk" && typeof event.data.text === "string") {
         yield event.data.text;
       }

@@ -23,7 +23,10 @@ export interface CloudLoginOptions {
 export async function cloudLogin(
   options: CloudLoginOptions = {},
 ): Promise<CloudLoginResult> {
-  const baseUrl = (options.baseUrl ?? "https://www.elizacloud.ai").replace(/\/+$/, "");
+  const baseUrl = (options.baseUrl ?? "https://www.elizacloud.ai").replace(
+    /\/+$/,
+    "",
+  );
   const timeoutMs = options.timeoutMs ?? 300_000;
   const pollIntervalMs = options.pollIntervalMs ?? 2_000;
   const sessionId = crypto.randomUUID();
@@ -38,7 +41,9 @@ export async function cloudLogin(
 
   if (!createResponse.ok) {
     const errorText = await createResponse.text();
-    throw new Error(`Failed to create auth session (HTTP ${createResponse.status}): ${errorText}`);
+    throw new Error(
+      `Failed to create auth session (HTTP ${createResponse.status}): ${errorText}`,
+    );
   }
 
   const browserUrl = `${baseUrl}/auth/cli-login?session=${encodeURIComponent(sessionId)}`;

@@ -125,9 +125,14 @@ describe("Agent Export/Import API (no runtime)", () => {
 
   describe("POST /api/agent/export", () => {
     it("returns 503 when no runtime is running", async () => {
-      const { status, data } = await jsonReq(port, "POST", "/api/agent/export", {
-        password: "test-password",
-      });
+      const { status, data } = await jsonReq(
+        port,
+        "POST",
+        "/api/agent/export",
+        {
+          password: "test-password",
+        },
+      );
       expect(status).toBe(503);
       expect(data.error).toMatch(/not running/i);
     });
@@ -189,7 +194,12 @@ describe("Agent Export/Import API (no runtime)", () => {
 
     it("returns 503 when request body is too small (runtime check first)", async () => {
       const tiny = Buffer.from("hi");
-      const { status } = await binaryReq(port, "POST", "/api/agent/import", tiny);
+      const { status } = await binaryReq(
+        port,
+        "POST",
+        "/api/agent/import",
+        tiny,
+      );
       expect(status).toBe(503);
     });
 
@@ -266,9 +276,18 @@ describe("Agent Export/Import crypto round-trip (unit-level)", () => {
     // Encrypt
     const salt = crypto.randomBytes(32);
     const iv = crypto.randomBytes(12);
-    const key = crypto.pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 32, "sha256");
+    const key = crypto.pbkdf2Sync(
+      password,
+      salt,
+      PBKDF2_ITERATIONS,
+      32,
+      "sha256",
+    );
     const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-    const ciphertext = Buffer.concat([cipher.update(compressed), cipher.final()]);
+    const ciphertext = Buffer.concat([
+      cipher.update(compressed),
+      cipher.final(),
+    ]);
     const tag = cipher.getAuthTag();
 
     // Pack into file format
@@ -298,14 +317,25 @@ describe("Agent Export/Import crypto round-trip (unit-level)", () => {
     expect(readIterations).toBe(PBKDF2_ITERATIONS);
 
     // Decrypt
-    const readKey = crypto.pbkdf2Sync(password, readSalt, readIterations, 32, "sha256");
+    const readKey = crypto.pbkdf2Sync(
+      password,
+      readSalt,
+      readIterations,
+      32,
+      "sha256",
+    );
     const decipher = crypto.createDecipheriv("aes-256-gcm", readKey, readIv);
     decipher.setAuthTag(readTag);
-    const decrypted = Buffer.concat([decipher.update(readCiphertext), decipher.final()]);
+    const decrypted = Buffer.concat([
+      decipher.update(readCiphertext),
+      decipher.final(),
+    ]);
 
     // Decompress
     const decompressed = gunzipSync(decrypted);
-    const recovered = JSON.parse(decompressed.toString("utf-8")) as typeof payload;
+    const recovered = JSON.parse(
+      decompressed.toString("utf-8"),
+    ) as typeof payload;
 
     expect(recovered.version).toBe(1);
     expect(recovered.agent.name).toBe("TestAgent");
@@ -329,7 +359,13 @@ describe("Agent Export/Import crypto round-trip (unit-level)", () => {
     const tag = cipher.getAuthTag();
 
     // Try with wrong password
-    const wrongKey = crypto.pbkdf2Sync(wrongPassword, salt, 600_000, 32, "sha256");
+    const wrongKey = crypto.pbkdf2Sync(
+      wrongPassword,
+      salt,
+      600_000,
+      32,
+      "sha256",
+    );
     const decipher = crypto.createDecipheriv("aes-256-gcm", wrongKey, iv);
     decipher.setAuthTag(tag);
 

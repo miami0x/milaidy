@@ -499,6 +499,33 @@ export type X402Config = {
   dbPath?: string;
 };
 
+// --- Update/release channel types ---
+
+/** Release channel that determines which builds the user receives. */
+export type ReleaseChannel = "stable" | "beta" | "nightly";
+
+/** npm dist-tag corresponding to each release channel. */
+export const CHANNEL_DIST_TAGS: Readonly<Record<ReleaseChannel, string>> = {
+  stable: "latest",
+  beta: "beta",
+  nightly: "nightly",
+};
+
+export type UpdateConfig = {
+  /** Release channel: "stable" (default), "beta", or "nightly". */
+  channel?: ReleaseChannel;
+  /** Check for updates on CLI start. Default: true. */
+  checkOnStart?: boolean;
+  /** Automatically apply updates without prompting. Default: false. */
+  autoUpdate?: boolean;
+  /** ISO timestamp of the last update check. */
+  lastCheckAt?: string;
+  /** Version found during the last update check. */
+  lastCheckVersion?: string;
+  /** Minimum interval between update checks in seconds. Default: 14400 (4 hours). */
+  checkIntervalSeconds?: number;
+};
+
 export type MilaidyConfig = {
   meta?: {
     /** Last Milaidy version that wrote this config. */
@@ -532,12 +559,7 @@ export type MilaidyConfig = {
   };
   diagnostics?: DiagnosticsConfig;
   logging?: LoggingConfig;
-  update?: {
-    /** Update channel for git + npm installs ("stable", "beta", or "dev"). */
-    channel?: "stable" | "beta" | "dev";
-    /** Check for updates on gateway start (npm installs only). */
-    checkOnStart?: boolean;
-  };
+  update?: UpdateConfig;
   browser?: BrowserConfig;
   ui?: {
     /** Accent color for Milaidy UI chrome (hex). */

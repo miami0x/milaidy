@@ -380,10 +380,15 @@ export async function scanDropInPlugins(
     let version = "0.0.0";
 
     try {
-      const raw = await fs.readFile(path.join(pluginDir, "package.json"), "utf-8");
+      const raw = await fs.readFile(
+        path.join(pluginDir, "package.json"),
+        "utf-8",
+      );
       const pkg = JSON.parse(raw) as { name?: string; version?: string };
-      if (typeof pkg.name === "string" && pkg.name.trim()) pluginName = pkg.name.trim();
-      if (typeof pkg.version === "string" && pkg.version.trim()) version = pkg.version.trim();
+      if (typeof pkg.name === "string" && pkg.name.trim())
+        pluginName = pkg.name.trim();
+      if (typeof pkg.version === "string" && pkg.version.trim())
+        version = pkg.version.trim();
     } catch {
       // No package.json — directory name is the identifier.
     }
@@ -405,14 +410,22 @@ export function mergeDropInPlugins(params: {
   denyList: ReadonlySet<string>;
   pluginsToLoad: Set<string>;
 }): { accepted: string[]; skipped: string[] } {
-  const { dropInRecords, installRecords, corePluginNames, denyList, pluginsToLoad } = params;
+  const {
+    dropInRecords,
+    installRecords,
+    corePluginNames,
+    denyList,
+    pluginsToLoad,
+  } = params;
   const accepted: string[] = [];
   const skipped: string[] = [];
 
   for (const [name, record] of Object.entries(dropInRecords)) {
     if (denyList.has(name) || installRecords[name]) continue;
     if (corePluginNames.has(name)) {
-      skipped.push(`[milaidy] Custom plugin "${name}" collides with core plugin — skipping`);
+      skipped.push(
+        `[milaidy] Custom plugin "${name}" collides with core plugin — skipping`,
+      );
       continue;
     }
     pluginsToLoad.add(name);
@@ -482,7 +495,9 @@ async function resolvePlugins(
 
   for (const msg of skipped) logger.warn(msg);
   if (customPluginNames.length > 0) {
-    logger.info(`[milaidy] Discovered ${customPluginNames.length} custom plugin(s): ${customPluginNames.join(", ")}`);
+    logger.info(
+      `[milaidy] Discovered ${customPluginNames.length} custom plugin(s): ${customPluginNames.join(", ")}`,
+    );
   }
 
   logger.info(`[milaidy] Resolving ${pluginsToLoad.size} plugins...`);
@@ -754,8 +769,10 @@ export function applyX402ConfigToEnv(config: MilaidyConfig): void {
     | undefined;
   if (!x402?.enabled) return;
   if (!process.env.X402_ENABLED) process.env.X402_ENABLED = "true";
-  if (x402.apiKey && !process.env.X402_API_KEY) process.env.X402_API_KEY = x402.apiKey;
-  if (x402.baseUrl && !process.env.X402_BASE_URL) process.env.X402_BASE_URL = x402.baseUrl;
+  if (x402.apiKey && !process.env.X402_API_KEY)
+    process.env.X402_API_KEY = x402.apiKey;
+  if (x402.baseUrl && !process.env.X402_BASE_URL)
+    process.env.X402_BASE_URL = x402.baseUrl;
 }
 
 /** @internal Exported for testing. */
@@ -1435,7 +1452,9 @@ export async function startEliza(
   await ensureAgentWorkspace({ dir: workspaceDir, ensureBootstrapFiles: true });
 
   // 4b. Ensure custom plugins directory exists for drop-in plugins
-  await fs.mkdir(path.join(resolveStateDir(), CUSTOM_PLUGINS_DIRNAME), { recursive: true });
+  await fs.mkdir(path.join(resolveStateDir(), CUSTOM_PLUGINS_DIRNAME), {
+    recursive: true,
+  });
 
   // 5. Create the Milaidy bridge plugin (workspace context + session keys + compaction)
   const agentId = character.name?.toLowerCase().replace(/\s+/g, "-") ?? "main";
@@ -1691,8 +1710,12 @@ export async function startEliza(
         logger.info("[milaidy] Hot-reload: Restarting runtime...");
         try {
           // Stop the old runtime to release resources (DB connections, timers, etc.)
-          try { await runtime.stop(); } catch (stopErr) {
-            logger.warn(`[milaidy] Hot-reload: old runtime stop failed: ${formatError(stopErr)}`);
+          try {
+            await runtime.stop();
+          } catch (stopErr) {
+            logger.warn(
+              `[milaidy] Hot-reload: old runtime stop failed: ${formatError(stopErr)}`,
+            );
           }
 
           // Reload config from disk (updated by API)

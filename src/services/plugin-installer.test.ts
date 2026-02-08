@@ -197,7 +197,12 @@ describe("plugin-installer", () => {
     });
 
     it("succeeds even if install directory doesn't exist on disk", async () => {
-      const ghostDir = path.join(configDir, "plugins", "installed", "_elizaos_plugin-ghost");
+      const ghostDir = path.join(
+        configDir,
+        "plugins",
+        "installed",
+        "_elizaos_plugin-ghost",
+      );
       writeConfig({
         plugins: {
           installs: {

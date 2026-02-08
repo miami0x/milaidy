@@ -21,7 +21,9 @@ export class BackupScheduler {
     this.running = true;
     this.timer = setInterval(() => {
       this.client.snapshot(this.agentId).catch((err) => {
-        logger.warn(`[cloud-backup] Auto-backup failed: ${err instanceof Error ? err.message : String(err)}`);
+        logger.warn(
+          `[cloud-backup] Auto-backup failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       });
     }, this.intervalMs);
   }
@@ -40,7 +42,9 @@ export class BackupScheduler {
 
   async finalSnapshot(): Promise<void> {
     await this.client.snapshot(this.agentId).catch((err) => {
-      logger.warn(`[cloud-backup] Final snapshot failed: ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(
+        `[cloud-backup] Final snapshot failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     });
   }
 }

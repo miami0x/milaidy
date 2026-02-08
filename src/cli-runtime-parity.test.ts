@@ -113,10 +113,18 @@ describe("onboarding presets parity (CLI ↔ GUI)", () => {
 
 describe("plugin loading parity across modes", () => {
   const envKeys = [
-    "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "GOOGLE_API_KEY",
-    "GOOGLE_GENERATIVE_AI_API_KEY", "XAI_API_KEY", "OPENROUTER_API_KEY",
-    "AI_GATEWAY_API_KEY", "AIGATEWAY_API_KEY",
-    "OLLAMA_BASE_URL", "ELIZAOS_CLOUD_API_KEY", "ELIZAOS_CLOUD_ENABLED",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GROQ_API_KEY",
+    "GOOGLE_API_KEY",
+    "GOOGLE_GENERATIVE_AI_API_KEY",
+    "XAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "AI_GATEWAY_API_KEY",
+    "AIGATEWAY_API_KEY",
+    "OLLAMA_BASE_URL",
+    "ELIZAOS_CLOUD_API_KEY",
+    "ELIZAOS_CLOUD_ENABLED",
   ];
   const snap = envSnapshot(envKeys);
   beforeEach(() => {

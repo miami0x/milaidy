@@ -8,7 +8,9 @@ import type { ElizaCloudClient } from "./bridge-client.js";
 export interface ConnectionMonitorCallbacks {
   onDisconnect: () => void;
   onReconnect: () => void;
-  onStatusChange?: (status: "connected" | "reconnecting" | "disconnected") => void;
+  onStatusChange?: (
+    status: "connected" | "reconnecting" | "disconnected",
+  ) => void;
 }
 
 export class ConnectionMonitor {
@@ -26,13 +28,20 @@ export class ConnectionMonitor {
 
   start(): void {
     if (this.timer) return;
-    logger.info(`[cloud-monitor] Starting connection monitor (interval: ${this.heartbeatIntervalMs}ms, maxFailures: ${this.maxFailures})`);
+    logger.info(
+      `[cloud-monitor] Starting connection monitor (interval: ${this.heartbeatIntervalMs}ms, maxFailures: ${this.maxFailures})`,
+    );
     this.consecutiveFailures = 0;
-    this.timer = setInterval(() => { this.tick(); }, this.heartbeatIntervalMs);
+    this.timer = setInterval(() => {
+      this.tick();
+    }, this.heartbeatIntervalMs);
   }
 
   stop(): void {
-    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
     this.consecutiveFailures = 0;
     this.reconnecting = false;
     logger.info("[cloud-monitor] Connection monitor stopped");
@@ -56,7 +65,9 @@ export class ConnectionMonitor {
     }
 
     this.consecutiveFailures++;
-    logger.warn(`[cloud-monitor] Heartbeat failed (${this.consecutiveFailures}/${this.maxFailures})`);
+    logger.warn(
+      `[cloud-monitor] Heartbeat failed (${this.consecutiveFailures}/${this.maxFailures})`,
+    );
 
     if (this.consecutiveFailures >= this.maxFailures) {
       this.callbacks.onStatusChange?.("disconnected");
@@ -72,7 +83,10 @@ export class ConnectionMonitor {
     let delay = 3_000;
     for (let attempt = 1; attempt <= 10; attempt++) {
       logger.info(`[cloud-monitor] Reconnect attempt ${attempt}/10...`);
-      const ok = await this.client.provision(this.agentId).then(() => true).catch(() => false);
+      const ok = await this.client
+        .provision(this.agentId)
+        .then(() => true)
+        .catch(() => false);
 
       if (ok) {
         logger.info("[cloud-monitor] Reconnection successful");

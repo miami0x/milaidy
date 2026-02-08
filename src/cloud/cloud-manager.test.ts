@@ -12,7 +12,11 @@ vi.mock("./bridge-client.js", () => {
       _baseUrl: string;
       _apiKey: string;
       provision = vi.fn().mockResolvedValue({ id: "a1", status: "running" });
-      getAgent = vi.fn().mockResolvedValue({ id: "a1", agentName: "TestBot", status: "running" });
+      getAgent = vi.fn().mockResolvedValue({
+        id: "a1",
+        agentName: "TestBot",
+        status: "running",
+      });
       snapshot = vi.fn().mockResolvedValue({ id: "bk-1" });
       heartbeat = vi.fn().mockResolvedValue(true);
       constructor(baseUrl: string, apiKey: string) {
@@ -58,10 +62,17 @@ vi.mock("./reconnect.js", () => {
 import { CloudManager } from "./cloud-manager.js";
 import type { CloudConfig } from "../config/types.milaidy.js";
 
-afterEach(() => { vi.clearAllMocks(); });
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 function cfg(overrides: Partial<CloudConfig> = {}): CloudConfig {
-  return { enabled: true, apiKey: "eliza_testkey", baseUrl: "https://test.elizacloud.ai", ...overrides };
+  return {
+    enabled: true,
+    apiKey: "eliza_testkey",
+    baseUrl: "https://test.elizacloud.ai",
+    ...overrides,
+  };
 }
 
 describe("CloudManager", () => {
@@ -78,21 +89,31 @@ describe("CloudManager", () => {
     });
 
     it("strips /api/v1 suffix from baseUrl", () => {
-      const mgr = new CloudManager(cfg({ baseUrl: "https://test.elizacloud.ai/api/v1" }));
+      const mgr = new CloudManager(
+        cfg({ baseUrl: "https://test.elizacloud.ai/api/v1" }),
+      );
       mgr.init();
-      expect((mgr.getClient() as Record<string, string>)._baseUrl).toBe("https://test.elizacloud.ai");
+      expect((mgr.getClient() as Record<string, string>)._baseUrl).toBe(
+        "https://test.elizacloud.ai",
+      );
     });
 
     it("strips trailing slashes", () => {
-      const mgr = new CloudManager(cfg({ baseUrl: "https://test.elizacloud.ai///" }));
+      const mgr = new CloudManager(
+        cfg({ baseUrl: "https://test.elizacloud.ai///" }),
+      );
       mgr.init();
-      expect((mgr.getClient() as Record<string, string>)._baseUrl).toBe("https://test.elizacloud.ai");
+      expect((mgr.getClient() as Record<string, string>)._baseUrl).toBe(
+        "https://test.elizacloud.ai",
+      );
     });
 
     it("defaults to elizacloud.ai when no baseUrl", () => {
       const mgr = new CloudManager(cfg({ baseUrl: undefined }));
       mgr.init();
-      expect((mgr.getClient() as Record<string, string>)._baseUrl).toBe("https://www.elizacloud.ai");
+      expect((mgr.getClient() as Record<string, string>)._baseUrl).toBe(
+        "https://www.elizacloud.ai",
+      );
     });
   });
 
@@ -115,7 +136,9 @@ describe("CloudManager", () => {
 
     it("fires status callbacks", async () => {
       const statuses: string[] = [];
-      const mgr = new CloudManager(cfg(), { onStatusChange: (s) => statuses.push(s) });
+      const mgr = new CloudManager(cfg(), {
+        onStatusChange: (s) => statuses.push(s),
+      });
       await mgr.connect("agent-123");
       expect(statuses).toContain("connecting");
       expect(statuses).toContain("connected");
@@ -134,7 +157,9 @@ describe("CloudManager", () => {
 
     it("fires disconnected callback", async () => {
       const statuses: string[] = [];
-      const mgr = new CloudManager(cfg(), { onStatusChange: (s) => statuses.push(s) });
+      const mgr = new CloudManager(cfg(), {
+        onStatusChange: (s) => statuses.push(s),
+      });
       await mgr.connect("agent-123");
       statuses.length = 0;
       await mgr.disconnect();
@@ -150,14 +175,24 @@ describe("CloudManager", () => {
       expect(new CloudManager(cfg({ enabled: false })).isEnabled()).toBe(false);
     });
     it("false when no apiKey", () => {
-      expect(new CloudManager(cfg({ apiKey: undefined })).isEnabled()).toBe(false);
+      expect(new CloudManager(cfg({ apiKey: undefined })).isEnabled()).toBe(
+        false,
+      );
     });
   });
 
   describe("initial state", () => {
-    it("proxy is null", () => { expect(new CloudManager(cfg()).getProxy()).toBeNull(); });
-    it("client is null", () => { expect(new CloudManager(cfg()).getClient()).toBeNull(); });
-    it("agentId is null", () => { expect(new CloudManager(cfg()).getActiveAgentId()).toBeNull(); });
-    it("status is disconnected", () => { expect(new CloudManager(cfg()).getStatus()).toBe("disconnected"); });
+    it("proxy is null", () => {
+      expect(new CloudManager(cfg()).getProxy()).toBeNull();
+    });
+    it("client is null", () => {
+      expect(new CloudManager(cfg()).getClient()).toBeNull();
+    });
+    it("agentId is null", () => {
+      expect(new CloudManager(cfg()).getActiveAgentId()).toBeNull();
+    });
+    it("status is disconnected", () => {
+      expect(new CloudManager(cfg()).getStatus()).toBe("disconnected");
+    });
   });
 });

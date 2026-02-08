@@ -330,29 +330,48 @@ describe("Database API E2E (no runtime)", () => {
     });
 
     it("GET /api/database/tables/agents/rows → 503", async () => {
-      const { status } = await req(port, "GET", "/api/database/tables/agents/rows");
+      const { status } = await req(
+        port,
+        "GET",
+        "/api/database/tables/agents/rows",
+      );
       expect(status).toBe(503);
     });
 
     it("POST /api/database/tables/agents/rows → 503", async () => {
-      const { status } = await req(port, "POST", "/api/database/tables/agents/rows", {
-        data: { name: "test" },
-      });
+      const { status } = await req(
+        port,
+        "POST",
+        "/api/database/tables/agents/rows",
+        {
+          data: { name: "test" },
+        },
+      );
       expect(status).toBe(503);
     });
 
     it("PUT /api/database/tables/agents/rows → 503", async () => {
-      const { status } = await req(port, "PUT", "/api/database/tables/agents/rows", {
-        where: { id: "123" },
-        data: { name: "updated" },
-      });
+      const { status } = await req(
+        port,
+        "PUT",
+        "/api/database/tables/agents/rows",
+        {
+          where: { id: "123" },
+          data: { name: "updated" },
+        },
+      );
       expect(status).toBe(503);
     });
 
     it("DELETE /api/database/tables/agents/rows → 503", async () => {
-      const { status } = await req(port, "DELETE", "/api/database/tables/agents/rows", {
-        where: { id: "123" },
-      });
+      const { status } = await req(
+        port,
+        "DELETE",
+        "/api/database/tables/agents/rows",
+        {
+          where: { id: "123" },
+        },
+      );
       expect(status).toBe(503);
     });
 
@@ -394,7 +413,11 @@ describe("Database API E2E (no runtime)", () => {
     });
 
     it("extra path segments after /rows are not matched → 503", async () => {
-      const { status } = await req(port, "GET", "/api/database/tables/foo/rows/extra");
+      const { status } = await req(
+        port,
+        "GET",
+        "/api/database/tables/foo/rows/extra",
+      );
       expect(status).toBe(503);
     });
 
@@ -428,19 +451,34 @@ describe("Database API E2E (no runtime)", () => {
     });
 
     it("POST /api/database/tables/foo/rows with empty body → 503", async () => {
-      const { status } = await req(port, "POST", "/api/database/tables/foo/rows", {});
+      const { status } = await req(
+        port,
+        "POST",
+        "/api/database/tables/foo/rows",
+        {},
+      );
       expect(status).toBe(503);
     });
 
     it("PUT /api/database/tables/foo/rows missing where → 503", async () => {
-      const { status } = await req(port, "PUT", "/api/database/tables/foo/rows", {
-        data: { name: "x" },
-      });
+      const { status } = await req(
+        port,
+        "PUT",
+        "/api/database/tables/foo/rows",
+        {
+          data: { name: "x" },
+        },
+      );
       expect(status).toBe(503);
     });
 
     it("DELETE /api/database/tables/foo/rows missing where → 503", async () => {
-      const { status } = await req(port, "DELETE", "/api/database/tables/foo/rows", {});
+      const { status } = await req(
+        port,
+        "DELETE",
+        "/api/database/tables/foo/rows",
+        {},
+      );
       expect(status).toBe(503);
     });
   });

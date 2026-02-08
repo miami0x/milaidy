@@ -86,9 +86,7 @@ const pluginLoadResults: Array<{
   loadTimeMs: number;
 }> = [];
 
-async function loadPlugin(
-  name: string,
-): Promise<Plugin | null> {
+async function loadPlugin(name: string): Promise<Plugin | null> {
   const start = performance.now();
   try {
     const p = extractPlugin((await import(name)) as PluginModule);
@@ -103,7 +101,12 @@ async function loadPlugin(
   } catch (err) {
     const elapsed = performance.now() - start;
     const msg = err instanceof Error ? err.message : String(err);
-    pluginLoadResults.push({ name, loaded: false, error: msg, loadTimeMs: elapsed });
+    pluginLoadResults.push({
+      name,
+      loaded: false,
+      error: msg,
+      loadTimeMs: elapsed,
+    });
     logger.warn(`[e2e-validation] FAILED to load plugin ${name}: ${msg}`);
     return null;
   }
@@ -291,11 +294,16 @@ describe("Fresh Install Simulation", () => {
   it("onboarding flow: POST /api/onboarding creates agent config", async () => {
     const srv = await startApiServer({ port: 0 });
     try {
-      const { status, data } = await http$(srv.port, "POST", "/api/onboarding", {
-        name: "FreshInstallAgent",
-        bio: ["A freshly installed test agent"],
-        systemPrompt: "You are a test agent for E2E validation.",
-      });
+      const { status, data } = await http$(
+        srv.port,
+        "POST",
+        "/api/onboarding",
+        {
+          name: "FreshInstallAgent",
+          bio: ["A freshly installed test agent"],
+          systemPrompt: "You are a test agent for E2E validation.",
+        },
+      );
       expect(status).toBe(200);
       expect(data.ok).toBe(true);
 
@@ -479,7 +487,11 @@ describe("Plugin Stress Test", () => {
       try {
         const mod = (await import(name)) as PluginModule;
         const p = extractPlugin(mod);
-        results.push({ name, ok: p !== null, error: p ? undefined : "no Plugin export" });
+        results.push({
+          name,
+          ok: p !== null,
+          error: p ? undefined : "no Plugin export",
+        });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         results.push({ name, ok: false, error: msg });
@@ -851,8 +863,9 @@ describe("Deadlock Detection", () => {
       const startTime = performance.now();
 
       // Rapid fire state transitions — these interact with shared state
-      const transitions: Array<Promise<{ status: number; data: Record<string, unknown> }>> =
-        [];
+      const transitions: Array<
+        Promise<{ status: number; data: Record<string, unknown> }>
+      > = [];
       for (let i = 0; i < 20; i++) {
         transitions.push(http$(srv.port, "POST", "/api/agent/start"));
         transitions.push(http$(srv.port, "POST", "/api/agent/stop"));
@@ -874,7 +887,9 @@ describe("Deadlock Detection", () => {
     const srv = await startApiServer({ port: 0 });
     try {
       // Interleave reads and writes
-      const ops: Array<Promise<{ status: number; data: Record<string, unknown> }>> = [];
+      const ops: Array<
+        Promise<{ status: number; data: Record<string, unknown> }>
+      > = [];
       for (let i = 0; i < 20; i++) {
         ops.push(http$(srv.port, "GET", "/api/config"));
         ops.push(
@@ -1071,7 +1086,9 @@ describe("Workspace Integrity", () => {
   });
 
   it("workspace creation handles concurrent calls", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "milaidy-e2e-ws-concurrent-"));
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "milaidy-e2e-ws-concurrent-"),
+    );
     const wsDir = path.join(dir, "concurrent-workspace");
 
     // Fire 5 concurrent workspace creates
@@ -1116,8 +1133,10 @@ describe("Runtime Integration (with model provider)", () => {
     process.env.PGLITE_DATA_DIR = pgliteDir;
 
     const secrets: Record<string, string> = {};
-    if (hasOpenAI) secrets.OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
-    if (hasAnthropic) secrets.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY as string;
+    if (hasOpenAI)
+      secrets.OPENAI_API_KEY = process.env.OPENAI_API_KEY as string;
+    if (hasAnthropic)
+      secrets.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY as string;
     if (hasGroq) secrets.GROQ_API_KEY = process.env.GROQ_API_KEY as string;
 
     const character = createCharacter({
@@ -1218,50 +1237,58 @@ describe("Runtime Integration (with model provider)", () => {
     expect(runtime!.plugins.length).toBeGreaterThanOrEqual(5);
   });
 
-  it.skipIf(!hasModelProvider)("generates text response", async () => {
-    // Retry up to 3 times — when the full suite runs in parallel,
-    // concurrent runtime initialization can cause the first call to
-    // return empty text due to model provider warm-up.
-    let text = "";
-    for (let attempt = 0; attempt < 3 && !text; attempt++) {
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 2000));
-      try {
-        const result = await runtime!.generateText(
-          "Say 'validation ok' exactly.",
-          { maxTokens: 256 },
-        );
-        if (typeof result === "string") {
-          text = result;
-        } else if (result.text instanceof Promise) {
-          text = await result.text;
-        } else {
-          text = String(result.text ?? result ?? "");
+  it.skipIf(!hasModelProvider)(
+    "generates text response",
+    async () => {
+      // Retry up to 3 times — when the full suite runs in parallel,
+      // concurrent runtime initialization can cause the first call to
+      // return empty text due to model provider warm-up.
+      let text = "";
+      for (let attempt = 0; attempt < 3 && !text; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const result = await runtime!.generateText(
+            "Say 'validation ok' exactly.",
+            { maxTokens: 256 },
+          );
+          if (typeof result === "string") {
+            text = result;
+          } else if (result.text instanceof Promise) {
+            text = await result.text;
+          } else {
+            text = String(result.text ?? result ?? "");
+          }
+        } catch {
+          // Model may not be ready yet
         }
-      } catch {
-        // Model may not be ready yet
       }
-    }
-    expect(text.length).toBeGreaterThan(0);
-  }, 120_000);
+      expect(text.length).toBeGreaterThan(0);
+    },
+    120_000,
+  );
 
-  it.skipIf(!hasModelProvider)("handleMessage produces response", async () => {
-    const msg = createMessageMemory({
-      id: crypto.randomUUID() as UUID,
-      entityId: userId,
-      roomId,
-      content: {
-        text: "Say hello in one word.",
-        source: "test",
-        channelType: ChannelType.DM,
-      },
-    });
-    let resp = "";
-    await runtime!.messageService!.handleMessage(runtime!, msg, async (c) => {
-      if (c?.text) resp += c.text;
-      return [];
-    });
-    expect(resp.length).toBeGreaterThan(0);
-  }, 60_000);
+  it.skipIf(!hasModelProvider)(
+    "handleMessage produces response",
+    async () => {
+      const msg = createMessageMemory({
+        id: crypto.randomUUID() as UUID,
+        entityId: userId,
+        roomId,
+        content: {
+          text: "Say hello in one word.",
+          source: "test",
+          channelType: ChannelType.DM,
+        },
+      });
+      let resp = "";
+      await runtime!.messageService!.handleMessage(runtime!, msg, async (c) => {
+        if (c?.text) resp += c.text;
+        return [];
+      });
+      expect(resp.length).toBeGreaterThan(0);
+    },
+    60_000,
+  );
 
   it.skipIf(!hasModelProvider)(
     "context integrity maintained across 5 sequential messages",

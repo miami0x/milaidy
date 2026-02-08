@@ -13,7 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BackupScheduler } from "./backup.js";
 import type { ElizaCloudClient } from "./bridge-client.js";
 
-function createMockClient(): ElizaCloudClient & { snapshot: ReturnType<typeof vi.fn> } {
+function createMockClient(): ElizaCloudClient & {
+  snapshot: ReturnType<typeof vi.fn>;
+} {
   return {
     snapshot: vi.fn().mockResolvedValue({ id: "bk-1", snapshotType: "auto" }),
   } as unknown as ElizaCloudClient & { snapshot: ReturnType<typeof vi.fn> };

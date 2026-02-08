@@ -340,10 +340,7 @@
       "description": "CLI framework plugin for ElizaOS agents - provides command registration, execution, and utilities",
       "category": "feature",
       "envKey": null,
-      "configKeys": [
-        "CLI_NAME",
-        "CLI_VERSION"
-      ],
+      "configKeys": ["CLI_NAME", "CLI_VERSION"],
       "pluginParameters": {
         "CLI_NAME": {
           "type": "string",
@@ -1958,10 +1955,7 @@
       "description": "elizaOS plugin to integrate with MCP (Model Context Protocol) servers",
       "category": "feature",
       "envKey": null,
-      "configKeys": [
-        "PATH",
-        "mcp"
-      ],
+      "configKeys": ["PATH", "mcp"],
       "pluginParameters": {
         "PATH": {
           "type": "string",
@@ -2475,9 +2469,7 @@
       "description": "Plugin manager for ElizaOS",
       "category": "feature",
       "envKey": null,
-      "configKeys": [
-        "API_KEY"
-      ],
+      "configKeys": ["API_KEY"],
       "pluginParameters": {
         "API_KEY": {
           "type": "string",
@@ -2796,10 +2788,7 @@
       "description": "File-based memory storage plugin for ElizaOS - persistent notes and memories",
       "category": "feature",
       "envKey": null,
-      "configKeys": [
-        "SCRATCHPAD_BASE_PATH",
-        "SCRATCHPAD_MAX_FILE_SIZE"
-      ],
+      "configKeys": ["SCRATCHPAD_BASE_PATH", "SCRATCHPAD_MAX_FILE_SIZE"],
       "pluginParameters": {
         "SCRATCHPAD_BASE_PATH": {
           "type": "string",
@@ -3148,11 +3137,7 @@
       "description": "Trusted Execution Environment (TEE) integration plugin for elizaOS - Multi-language support (TypeScript, Python, Rust)",
       "category": "feature",
       "envKey": null,
-      "configKeys": [
-        "TEE_MODE",
-        "TEE_VENDOR",
-        "WALLET_SECRET_SALT"
-      ],
+      "configKeys": ["TEE_MODE", "TEE_VENDOR", "WALLET_SECRET_SALT"],
       "pluginParameters": {
         "TEE_MODE": {
           "type": "string",
@@ -3235,10 +3220,7 @@
       "description": "Multi-language Todo list plugin for elizaOS with TypeScript, Python, and Rust implementations",
       "category": "feature",
       "envKey": null,
-      "configKeys": [
-        "ENABLE_REMINDERS",
-        "REMINDER_INTERVAL_MS"
-      ],
+      "configKeys": ["ENABLE_REMINDERS", "REMINDER_INTERVAL_MS"],
       "pluginParameters": {
         "ENABLE_REMINDERS": {
           "type": "boolean",
@@ -3446,10 +3428,7 @@
       "description": "Vision plugin for ElizaOS - provides camera integration and visual awareness",
       "category": "feature",
       "envKey": null,
-      "configKeys": [
-        "CAMERA_NAME",
-        "PIXEL_CHANGE_THRESHOLD"
-      ],
+      "configKeys": ["CAMERA_NAME", "PIXEL_CHANGE_THRESHOLD"],
       "pluginParameters": {
         "CAMERA_NAME": {
           "type": "string",

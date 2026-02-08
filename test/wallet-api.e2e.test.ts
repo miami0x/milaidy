@@ -16,7 +16,9 @@ const testDir = path.dirname(fileURLToPath(import.meta.url));
 try {
   const { config } = await import("dotenv");
   config({ path: path.resolve(testDir, "..", "..", "eliza", ".env") });
-} catch { /* dotenv may not be available */ }
+} catch {
+  /* dotenv may not be available */
+}
 
 // ---------------------------------------------------------------------------
 // HTTP helper
@@ -289,39 +291,31 @@ describe("Wallet API E2E", () => {
       expect("solana" in data).toBe(true);
     });
 
-    it(
-      "fetches real EVM balances with Alchemy key",
-      async () => {
-        const { data } = await req(port, "GET", "/api/wallet/balances");
-        const evm = data.evm as {
-          address: string;
-          chains: Array<{ chain: string; nativeBalance: string }>;
-        } | null;
-        if (evm) {
-          expect(evm.address).toBeDefined();
-          expect(evm.chains.length).toBeGreaterThan(0);
-          expect(evm.chains[0].chain).toBeDefined();
-          expect(evm.chains[0].nativeBalance).toBeDefined();
-        }
-      },
-      60_000,
-    );
+    it("fetches real EVM balances with Alchemy key", async () => {
+      const { data } = await req(port, "GET", "/api/wallet/balances");
+      const evm = data.evm as {
+        address: string;
+        chains: Array<{ chain: string; nativeBalance: string }>;
+      } | null;
+      if (evm) {
+        expect(evm.address).toBeDefined();
+        expect(evm.chains.length).toBeGreaterThan(0);
+        expect(evm.chains[0].chain).toBeDefined();
+        expect(evm.chains[0].nativeBalance).toBeDefined();
+      }
+    }, 60_000);
 
-    it(
-      "fetches real Solana balances with Helius key",
-      async () => {
-        const { data } = await req(port, "GET", "/api/wallet/balances");
-        const solana = data.solana as {
-          address: string;
-          solBalance: string;
-        } | null;
-        if (solana) {
-          expect(solana.address).toBeDefined();
-          expect(solana.solBalance).toBeDefined();
-        }
-      },
-      60_000,
-    );
+    it("fetches real Solana balances with Helius key", async () => {
+      const { data } = await req(port, "GET", "/api/wallet/balances");
+      const solana = data.solana as {
+        address: string;
+        solBalance: string;
+      } | null;
+      if (solana) {
+        expect(solana.address).toBeDefined();
+        expect(solana.solBalance).toBeDefined();
+      }
+    }, 60_000);
   });
 
   // ── GET /api/wallet/nfts (requires API keys) ──────────────────────────
@@ -334,21 +328,17 @@ describe("Wallet API E2E", () => {
       expect("solana" in data).toBe(true);
     });
 
-    it(
-      "fetches real EVM NFTs with Alchemy key",
-      async () => {
-        const { data } = await req(port, "GET", "/api/wallet/nfts");
-        const evm = data.evm as Array<{ chain: string; nfts: unknown[] }>;
-        // API should return an array (possibly empty for test wallets)
-        expect(Array.isArray(evm)).toBe(true);
-        // Each chain entry should have the expected shape
-        for (const chainData of evm) {
-          expect(typeof chainData.chain).toBe("string");
-          expect(Array.isArray(chainData.nfts)).toBe(true);
-        }
-      },
-      60_000,
-    );
+    it("fetches real EVM NFTs with Alchemy key", async () => {
+      const { data } = await req(port, "GET", "/api/wallet/nfts");
+      const evm = data.evm as Array<{ chain: string; nfts: unknown[] }>;
+      // API should return an array (possibly empty for test wallets)
+      expect(Array.isArray(evm)).toBe(true);
+      // Each chain entry should have the expected shape
+      for (const chainData of evm) {
+        expect(typeof chainData.chain).toBe("string");
+        expect(Array.isArray(chainData.nfts)).toBe(true);
+      }
+    }, 60_000);
   });
 
   // ── POST /api/wallet/import ──────────────────────────────────────────

@@ -66,7 +66,9 @@ const CORE_EXPORT_INTRODUCED_IN: Readonly<Record<string, string>> = {
  * These are the imports that caused issue #10. If more cross-version
  * import issues are discovered, add them here.
  */
-const PLUGIN_REQUIRED_CORE_EXPORTS: Readonly<Record<string, readonly string[]>> = {
+const PLUGIN_REQUIRED_CORE_EXPORTS: Readonly<
+  Record<string, readonly string[]>
+> = {
   "@elizaos/plugin-openrouter": ["MAX_EMBEDDING_TOKENS"],
   "@elizaos/plugin-openai": ["MAX_EMBEDDING_TOKENS"],
   "@elizaos/plugin-ollama": ["MAX_EMBEDDING_TOKENS"],
@@ -102,7 +104,9 @@ export const AI_PROVIDER_PLUGINS: readonly string[] = [
  *   "2.0.0-alpha.4" → [2, 0, 0, 4]
  *   "2.0.0"          → [2, 0, 0, Infinity]  (release beats any pre-release)
  */
-export function parseSemver(version: string): [number, number, number, number] | null {
+export function parseSemver(
+  version: string,
+): [number, number, number, number] | null {
   const match = version.match(
     /^(\d+)\.(\d+)\.(\d+)(?:-(?:alpha|beta|rc)\.(\d+))?$/,
   );
@@ -112,7 +116,8 @@ export function parseSemver(version: string): [number, number, number, number] |
   const minor = Number(match[2]);
   const patch = Number(match[3]);
   // A release without a pre-release tag sorts after any alpha/beta/rc.
-  const pre = match[4] !== undefined ? Number(match[4]) : Number.POSITIVE_INFINITY;
+  const pre =
+    match[4] !== undefined ? Number(match[4]) : Number.POSITIVE_INFINITY;
 
   return [major, minor, patch, pre];
 }
@@ -167,7 +172,9 @@ export async function coreExportExists(exportName: string): Promise<boolean> {
  * Read the installed version of a package from its package.json.
  * Returns null if the package is not installed or the version is unreadable.
  */
-export async function getInstalledVersion(packageName: string): Promise<string | null> {
+export async function getInstalledVersion(
+  packageName: string,
+): Promise<string | null> {
   try {
     // Dynamic import of package.json is not universally supported, so we
     // use createRequire as a robust fallback for reading metadata.
@@ -175,7 +182,9 @@ export async function getInstalledVersion(packageName: string): Promise<string |
     const require = createRequire(import.meta.url);
     const pkgPath = require.resolve(`${packageName}/package.json`);
     const { readFileSync } = await import("node:fs");
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { version: string };
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+      version: string;
+    };
     return pkg.version ?? null;
   } catch {
     return null;

@@ -53,9 +53,17 @@ function envSnapshot(keys: string[]): {
 
 describe("collectPluginNames", () => {
   const envKeys = [
-    "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY", "GOOGLE_API_KEY",
-    "XAI_API_KEY", "OPENROUTER_API_KEY", "AI_GATEWAY_API_KEY", "AIGATEWAY_API_KEY", "OLLAMA_BASE_URL",
-    "ELIZAOS_CLOUD_API_KEY", "ELIZAOS_CLOUD_ENABLED",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GROQ_API_KEY",
+    "GOOGLE_API_KEY",
+    "XAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "AI_GATEWAY_API_KEY",
+    "AIGATEWAY_API_KEY",
+    "OLLAMA_BASE_URL",
+    "ELIZAOS_CLOUD_API_KEY",
+    "ELIZAOS_CLOUD_ENABLED",
   ];
   const snap = envSnapshot(envKeys);
   beforeEach(() => {
@@ -603,7 +611,10 @@ describe("scanDropInPlugins", () => {
     for (const n of ["a", "b", "c"]) {
       const dir = path.join(tmpDir, n);
       await fs.mkdir(dir);
-      await fs.writeFile(path.join(dir, "package.json"), JSON.stringify({ name: n }));
+      await fs.writeFile(
+        path.join(dir, "package.json"),
+        JSON.stringify({ name: n }),
+      );
     }
     const records = await scanDropInPlugins(tmpDir);
     expect(Object.keys(records)).toHaveLength(3);
@@ -858,7 +869,9 @@ describe("mergeDropInPlugins", () => {
     });
     expect(accepted).toHaveLength(0);
     // Original install record is preserved, not overwritten
-    expect(installRecords["already-installed"].installPath).toBe("/existing/path");
+    expect(installRecords["already-installed"].installPath).toBe(
+      "/existing/path",
+    );
   });
 
   it("handles multiple plugins with mixed outcomes", () => {
@@ -929,7 +942,10 @@ describe("findPluginExport", () => {
   });
 
   it("finds plugin from module-level CJS pattern", () => {
-    const mod = { name: "cjs-mod", description: "cjs module pattern" } as Record<string, unknown>;
+    const mod = {
+      name: "cjs-mod",
+      description: "cjs module pattern",
+    } as Record<string, unknown>;
     const result = findPluginExport(mod);
     expect(result?.name).toBe("cjs-mod");
   });
@@ -988,7 +1004,12 @@ describe("findPluginExport", () => {
 
   it("accepts plugin with extra fields beyond name/description", () => {
     const result = findPluginExport({
-      default: { name: "rich", description: "rich plugin", init: () => {}, actions: [] },
+      default: {
+        name: "rich",
+        description: "rich plugin",
+        init: () => {},
+        actions: [],
+      },
     });
     expect(result?.name).toBe("rich");
   });

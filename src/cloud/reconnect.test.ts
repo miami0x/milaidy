@@ -18,7 +18,9 @@ function sleep(ms: number): Promise<void> {
 import { ConnectionMonitor } from "./reconnect.js";
 import type { ElizaCloudClient } from "./bridge-client.js";
 
-function createMockClient(overrides: Record<string, unknown> = {}): ElizaCloudClient {
+function createMockClient(
+  overrides: Record<string, unknown> = {},
+): ElizaCloudClient {
   return {
     heartbeat: vi.fn().mockResolvedValue(true),
     provision: vi.fn().mockResolvedValue({ id: "a1", status: "running" }),
@@ -36,7 +38,9 @@ afterEach(() => {
 describe("ConnectionMonitor", () => {
   // Use real timers for these tests since the ConnectionMonitor uses
   // fire-and-forget async ticks that don't compose well with fake timers.
-  beforeEach(() => { vi.useRealTimers(); });
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
 
   it("sends heartbeats at configured interval", async () => {
     const client = createMockClient();
@@ -53,7 +57,9 @@ describe("ConnectionMonitor", () => {
     monitor.stop();
 
     // Should have fired at least 2 heartbeats in 80ms with 30ms interval
-    expect((client.heartbeat as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(
+      (client.heartbeat as ReturnType<typeof vi.fn>).mock.calls.length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("calls onDisconnect after maxFailures consecutive heartbeat failures", async () => {
@@ -133,11 +139,10 @@ describe("ConnectionMonitor", () => {
   }, 10_000);
 
   it("isMonitoring reflects lifecycle", () => {
-    const monitor = new ConnectionMonitor(
-      createMockClient(),
-      "a1",
-      { onDisconnect: vi.fn(), onReconnect: vi.fn() },
-    );
+    const monitor = new ConnectionMonitor(createMockClient(), "a1", {
+      onDisconnect: vi.fn(),
+      onReconnect: vi.fn(),
+    });
 
     expect(monitor.isMonitoring()).toBe(false);
     monitor.start();
@@ -147,11 +152,10 @@ describe("ConnectionMonitor", () => {
   });
 
   it("stop resets internal state", () => {
-    const monitor = new ConnectionMonitor(
-      createMockClient(),
-      "a1",
-      { onDisconnect: vi.fn(), onReconnect: vi.fn() },
-    );
+    const monitor = new ConnectionMonitor(createMockClient(), "a1", {
+      onDisconnect: vi.fn(),
+      onReconnect: vi.fn(),
+    });
 
     monitor.start();
     monitor.stop();

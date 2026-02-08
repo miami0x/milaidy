@@ -16,7 +16,10 @@ import { cloudLogin } from "./auth.js";
 // fetch mock
 // ---------------------------------------------------------------------------
 
-const fetchMock = vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>();
+const fetchMock =
+  vi.fn<
+    (input: string | URL | Request, init?: RequestInit) => Promise<Response>
+  >();
 
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
@@ -42,12 +45,23 @@ describe("cloudLogin", () => {
     const capturedUrls: string[] = [];
 
     fetchMock.mockImplementation(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
       capturedUrls.push(url);
 
       // Session creation
-      if (url.includes("/api/auth/cli-session") && !url.includes("/api/auth/cli-session/")) {
-        return jsonResponse({ sessionId: "test-session", status: "pending" }, 201);
+      if (
+        url.includes("/api/auth/cli-session") &&
+        !url.includes("/api/auth/cli-session/")
+      ) {
+        return jsonResponse(
+          { sessionId: "test-session", status: "pending" },
+          201,
+        );
       }
 
       // Poll endpoint
@@ -72,50 +86,74 @@ describe("cloudLogin", () => {
       baseUrl: "https://test.elizacloud.ai",
       pollIntervalMs: 10,
       timeoutMs: 5000,
-      onBrowserUrl: (url) => { browserUrl = url; },
+      onBrowserUrl: (url) => {
+        browserUrl = url;
+      },
     });
 
     expect(result.apiKey).toBe("eliza_test123");
     expect(result.keyPrefix).toBe("eliza_test");
     expect(result.expiresAt).toBeNull();
-    expect(browserUrl).toContain("https://test.elizacloud.ai/auth/cli-login?session=");
+    expect(browserUrl).toContain(
+      "https://test.elizacloud.ai/auth/cli-login?session=",
+    );
     expect(pollCount).toBe(3);
   });
 
   it("throws on session creation failure", async () => {
     fetchMock.mockResolvedValue(new Response("Server Error", { status: 500 }));
 
-    await expect(cloudLogin({
-      baseUrl: "https://test.elizacloud.ai",
-      pollIntervalMs: 10,
-      timeoutMs: 1000,
-    })).rejects.toThrow("Failed to create auth session");
+    await expect(
+      cloudLogin({
+        baseUrl: "https://test.elizacloud.ai",
+        pollIntervalMs: 10,
+        timeoutMs: 1000,
+      }),
+    ).rejects.toThrow("Failed to create auth session");
   });
 
   it("throws on timeout when login is never completed", async () => {
     fetchMock.mockImplementation(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
 
-      if (url.includes("/api/auth/cli-session") && !url.includes("/api/auth/cli-session/")) {
+      if (
+        url.includes("/api/auth/cli-session") &&
+        !url.includes("/api/auth/cli-session/")
+      ) {
         return jsonResponse({ sessionId: "test-session" }, 201);
       }
       // Always pending
       return jsonResponse({ status: "pending" });
     });
 
-    await expect(cloudLogin({
-      baseUrl: "https://test.elizacloud.ai",
-      pollIntervalMs: 10,
-      timeoutMs: 100,
-    })).rejects.toThrow("Cloud login timed out");
+    await expect(
+      cloudLogin({
+        baseUrl: "https://test.elizacloud.ai",
+        pollIntervalMs: 10,
+        timeoutMs: 100,
+      }),
+    ).rejects.toThrow("Cloud login timed out");
   });
 
   it("throws when session becomes 404 mid-poll", async () => {
     let callCount = 0;
     fetchMock.mockImplementation(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
 
-      if (url.includes("/api/auth/cli-session") && !url.includes("/api/auth/cli-session/")) {
+      if (
+        url.includes("/api/auth/cli-session") &&
+        !url.includes("/api/auth/cli-session/")
+      ) {
         return jsonResponse({ sessionId: "test-session" }, 201);
       }
       callCount++;
@@ -125,41 +163,65 @@ describe("cloudLogin", () => {
       return jsonResponse({ status: "pending" });
     });
 
-    await expect(cloudLogin({
-      baseUrl: "https://test.elizacloud.ai",
-      pollIntervalMs: 10,
-      timeoutMs: 5000,
-    })).rejects.toThrow("Auth session expired or not found");
+    await expect(
+      cloudLogin({
+        baseUrl: "https://test.elizacloud.ai",
+        pollIntervalMs: 10,
+        timeoutMs: 5000,
+      }),
+    ).rejects.toThrow("Auth session expired or not found");
   });
 
   it("throws when authenticated but key already retrieved", async () => {
     fetchMock.mockImplementation(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
 
-      if (url.includes("/api/auth/cli-session") && !url.includes("/api/auth/cli-session/")) {
+      if (
+        url.includes("/api/auth/cli-session") &&
+        !url.includes("/api/auth/cli-session/")
+      ) {
         return jsonResponse({ sessionId: "test-session" }, 201);
       }
       // Authenticated but no apiKey (already retrieved by another client)
-      return jsonResponse({ status: "authenticated", message: "API key already retrieved" });
+      return jsonResponse({
+        status: "authenticated",
+        message: "API key already retrieved",
+      });
     });
 
-    await expect(cloudLogin({
-      baseUrl: "https://test.elizacloud.ai",
-      pollIntervalMs: 10,
-      timeoutMs: 5000,
-    })).rejects.toThrow("API key was already retrieved");
+    await expect(
+      cloudLogin({
+        baseUrl: "https://test.elizacloud.ai",
+        pollIntervalMs: 10,
+        timeoutMs: 5000,
+      }),
+    ).rejects.toThrow("API key was already retrieved");
   });
 
   it("strips trailing slashes from baseUrl", async () => {
     const capturedUrls: string[] = [];
     fetchMock.mockImplementation(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
       capturedUrls.push(url);
 
       if (!url.includes("/api/auth/cli-session/")) {
         return jsonResponse({ sessionId: "s" }, 201);
       }
-      return jsonResponse({ status: "authenticated", apiKey: "k", keyPrefix: "p" });
+      return jsonResponse({
+        status: "authenticated",
+        apiKey: "k",
+        keyPrefix: "p",
+      });
     });
 
     await cloudLogin({
@@ -177,14 +239,23 @@ describe("cloudLogin", () => {
   it("calls onPollStatus with each status", async () => {
     let callCount = 0;
     fetchMock.mockImplementation(async (input: string | URL | Request) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
 
       if (!url.includes("/api/auth/cli-session/")) {
         return jsonResponse({ sessionId: "s" }, 201);
       }
       callCount++;
       if (callCount < 2) return jsonResponse({ status: "pending" });
-      return jsonResponse({ status: "authenticated", apiKey: "k", keyPrefix: "p" });
+      return jsonResponse({
+        status: "authenticated",
+        apiKey: "k",
+        keyPrefix: "p",
+      });
     });
 
     const statuses: string[] = [];

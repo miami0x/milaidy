@@ -34,6 +34,13 @@ export function registerPreActionHooks(
       commandPath[0] === "completion";
     if (!hideBanner) {
       emitCliBanner(programVersion);
+
+      // Schedule a non-blocking background update check for interactive commands.
+      // Skipped for update/completion (they handle their own checks) and CI.
+      const { scheduleUpdateNotification } = await import(
+        "../../services/update-notifier.js"
+      );
+      scheduleUpdateNotification();
     }
     const verbose = getVerboseFlag(argv, { includeDebug: true });
     setVerbose(verbose);
