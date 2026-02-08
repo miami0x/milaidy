@@ -419,6 +419,13 @@ export async function uninstallMarketplaceSkill(workspaceDir: string, skillId: s
     throw new Error(`Installed marketplace skill "${id}" not found`);
   }
 
+  // Security: ensure installPath is within the expected marketplace directory
+  const expectedRoot = path.resolve(installationRoot(workspaceDir));
+  const resolvedPath = path.resolve(existing.installPath);
+  if (!resolvedPath.startsWith(`${expectedRoot}${path.sep}`) || resolvedPath === expectedRoot) {
+    throw new Error(`Refusing to remove skill outside ${expectedRoot}`);
+  }
+
   await fs.rm(existing.installPath, { recursive: true, force: true });
   delete records[id];
   await writeInstallRecords(workspaceDir, records);

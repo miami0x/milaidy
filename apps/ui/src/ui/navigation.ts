@@ -2,11 +2,11 @@
  * Navigation — tabs + onboarding.
  */
 
-export type Tab = "chat" | "workbench" | "inventory" | "plugins" | "marketplace" | "skills" | "config" | "logs";
+export type Tab = "chat" | "workbench" | "inventory" | "plugins" | "marketplace" | "skills" | "database" | "config" | "logs";
 
 export const TAB_GROUPS = [
   { label: "Chat", tabs: ["chat", "workbench"] as Tab[] },
-  { label: "Manage", tabs: ["inventory", "plugins", "marketplace"] as Tab[] },
+  { label: "Manage", tabs: ["inventory", "plugins", "marketplace", "skills", "database"] as Tab[] },
   { label: "Settings", tabs: ["config", "logs"] as Tab[] },
 ] as const;
 

@@ -3683,6 +3683,13 @@ async function handleRequest(
         error(res, "config.command is required for stdio servers", 400);
         return;
       }
+      // Security: Only allow known safe commands for MCP stdio servers
+      const allowedCommands = ["npx", "node", "docker", "deno", "bun", "uvx", "python", "python3"];
+      const baseName = cmd.trim().split("/").pop()?.split("\\").pop() ?? "";
+      if (!allowedCommands.includes(baseName)) {
+        error(res, `config.command must be one of: ${allowedCommands.join(", ")}`, 400);
+        return;
+      }
     } else {
       const url = (serverConfig as Record<string, unknown>).url;
       if (typeof url !== "string" || !url.trim()) {

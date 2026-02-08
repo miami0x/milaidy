@@ -97,7 +97,7 @@ export async function searchMcpMarketplace(
     limit = 30
 ): Promise<{ results: McpMarketplaceSearchItem[] }> {
     try {
-        let url = `${MCP_REGISTRY_BASE_URL}/v0/servers`;
+        const url = `${MCP_REGISTRY_BASE_URL}/v0/servers`;
 
         // The registry API doesn't have a search query param, so we fetch all and filter
         // If they add search later, we can update this

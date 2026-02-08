@@ -221,17 +221,28 @@ function handleDeepLink(url: string): void {
         // Navigate to settings
         window.location.hash = "#settings";
         break;
-      case "connect":
+      case "connect": {
         // Handle gateway connection URL
         const gatewayUrl = parsed.searchParams.get("url");
         if (gatewayUrl) {
-          document.dispatchEvent(
-            new CustomEvent("milaidy:connect", {
-              detail: { gatewayUrl },
-            })
-          );
+          // Security: only allow https/http URLs to prevent SSRF
+          try {
+            const validatedUrl = new URL(gatewayUrl);
+            if (validatedUrl.protocol !== "https:" && validatedUrl.protocol !== "http:") {
+              console.error("[Milaidy] Invalid gateway URL protocol:", validatedUrl.protocol);
+              break;
+            }
+            document.dispatchEvent(
+              new CustomEvent("milaidy:connect", {
+                detail: { gatewayUrl: validatedUrl.href },
+              })
+            );
+          } catch {
+            console.error("[Milaidy] Invalid gateway URL format");
+          }
         }
         break;
+      }
       case "share": {
         const title = parsed.searchParams.get("title")?.trim() || undefined;
         const text = parsed.searchParams.get("text")?.trim() || undefined;

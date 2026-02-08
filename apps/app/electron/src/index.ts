@@ -161,18 +161,15 @@ if (electronIsDev) {
       const inject = `${baseSnippet};${tokenSnippet}`;
       mainWindow.webContents.on('did-finish-load', () => {
         if (!mainWindow.isDestroyed()) {
-          mainWindow.webContents.executeJavaScript(
-            `window.__MILAIDY_API_BASE__ = "http://localhost:${status.port}"`
-          );
+          mainWindow.webContents.executeJavaScript(inject);
           flushPendingSharePayloads();
         }
       });
       // Also inject immediately if page is already loaded
-      mainWindow.webContents.executeJavaScript(
-        `window.__MILAIDY_API_BASE__ = "http://localhost:${status.port}"`
-      ).then(() => {
-        flushPendingSharePayloads();
-      }).catch(() => { /* page not ready yet, did-finish-load will handle it */ });
+      mainWindow.webContents.executeJavaScript(inject)
+        .then(() => {
+          flushPendingSharePayloads();
+        }).catch(() => { /* page not ready yet, did-finish-load will handle it */ });
     }
   }).catch((err) => {
     console.error('[Milaidy] Agent startup failed:', err);

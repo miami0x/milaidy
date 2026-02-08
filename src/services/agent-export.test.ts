@@ -199,7 +199,7 @@ function createMockAdapter(db: MockDb): IDatabaseAdapter<object> {
     getAgent: async (agentId: UUID) => db.agents.get(agentId) ?? null,
     getAgents: async () => Array.from(db.agents.values()),
     createAgent: async (agent: Partial<Agent>) => {
-      db.agents.set(agent.id!, agent as Agent);
+      db.agents.set(agent.id ?? "", agent as Agent);
       return true;
     },
     updateAgent: async (agentId: UUID, agent: Partial<Agent>) => {
@@ -213,8 +213,8 @@ function createMockAdapter(db: MockDb): IDatabaseAdapter<object> {
 
     getAllWorlds: async () => Array.from(db.worlds.values()),
     createWorld: async (world: World) => {
-      db.worlds.set(world.id!, world);
-      return world.id!;
+      db.worlds.set(world.id ?? "", world);
+      return world.id ?? "";
     },
     getWorld: async (id: UUID) => db.worlds.get(id) ?? null,
     updateWorld: async () => {},
@@ -235,8 +235,8 @@ function createMockAdapter(db: MockDb): IDatabaseAdapter<object> {
     createRooms: async (rooms: Room[]) => {
       const ids: UUID[] = [];
       for (const room of rooms) {
-        db.rooms.set(room.id!, room);
-        ids.push(room.id!);
+        db.rooms.set(room.id ?? "", room);
+        ids.push(room.id ?? "");
       }
       return ids;
     },
@@ -249,22 +249,22 @@ function createMockAdapter(db: MockDb): IDatabaseAdapter<object> {
       if (!participantData) return [];
       return participantData.entityIds
         .map((eid) => db.entities.get(eid))
-        .filter(Boolean)
+        .filter((e): e is Entity => Boolean(e))
         .map((entity) => {
           if (includeComponents) {
             return {
-              ...entity!,
-              components: db.components.filter((c) => c.entityId === entity!.id),
+              ...entity,
+              components: db.components.filter((c) => c.entityId === entity.id),
             };
           }
-          return entity!;
+          return entity;
         });
     },
     getEntitiesByIds: async (entityIds: UUID[]) =>
       entityIds.map((id) => db.entities.get(id)).filter(Boolean) as Entity[],
     createEntities: async (entities: Entity[]) => {
       for (const entity of entities) {
-        db.entities.set(entity.id!, entity);
+        db.entities.set(entity.id ?? "", entity);
       }
       return true;
     },
@@ -324,7 +324,7 @@ function createMockAdapter(db: MockDb): IDatabaseAdapter<object> {
     searchMemoriesByEmbedding: async () => [],
     createMemory: async (memory: Memory, _tableName: string) => {
       db.memories.push(memory);
-      return memory.id!;
+      return memory.id ?? "";
     },
     updateMemory: async () => true,
     deleteMemory: async () => {},
@@ -357,7 +357,7 @@ function createMockAdapter(db: MockDb): IDatabaseAdapter<object> {
     getTasksByName: async () => [],
     createTask: async (task: Task) => {
       db.tasks.push(task);
-      return task.id!;
+      return task.id ?? "";
     },
     updateTask: async () => {},
     deleteTask: async () => {},
@@ -416,18 +416,18 @@ function populateDb(db: MockDb): {
   db.agents.set(AGENT_ID, agent);
 
   const world = makeWorld();
-  db.worlds.set(world.id!, world);
+  db.worlds.set(world.id ?? "", world);
 
   const room = makeRoom({ worldId: world.id });
-  db.rooms.set(room.id!, room);
+  db.rooms.set(room.id ?? "", room);
 
   const entity = makeEntity();
-  db.entities.set(entity.id!, entity);
+  db.entities.set(entity.id ?? "", entity);
 
   // Add participants
-  db.participants.set(room.id!, {
-    entityIds: [AGENT_ID, entity.id!],
-    userStates: new Map([[entity.id!, "FOLLOWED"]]),
+  db.participants.set(room.id ?? "", {
+    entityIds: [AGENT_ID, entity.id ?? ""],
+    userStates: new Map([[entity.id ?? "", "FOLLOWED"]]),
   });
 
   const memories = [
@@ -501,10 +501,10 @@ describe("agent-export", () => {
       // Verify agent was created with new ID
       const importedAgent = targetDb.agents.get(result.agentId);
       expect(importedAgent).toBeDefined();
-      expect(importedAgent!.name).toBe("TestAgent");
+      expect(importedAgent?.name).toBe("TestAgent");
 
       // Verify secrets are preserved
-      const importedSettings = importedAgent!.settings as Record<string, Record<string, unknown>>;
+      const importedSettings = importedAgent?.settings as Record<string, Record<string, unknown>>;
       expect(importedSettings?.secrets?.OPENAI_API_KEY).toBe("sk-test-12345");
 
       // Verify memories were imported
@@ -597,7 +597,7 @@ describe("agent-export", () => {
       // Tamper with the ciphertext (last 100 bytes)
       const tampered = Buffer.from(fileBuffer);
       for (let i = tampered.length - 100; i < tampered.length; i++) {
-        tampered[i] = (tampered[i]! + 1) % 256;
+        tampered[i] = ((tampered[i] ?? 0) + 1) % 256;
       }
 
       const targetDb = createMockDb();
@@ -652,9 +652,9 @@ describe("agent-export", () => {
     it("assigns new UUIDs to all imported records", async () => {
       const { room, entity, world } = populateDb(sourceDb);
 
-      const originalRoomId = room.id!;
-      const originalEntityId = entity.id!;
-      const originalWorldId = world.id!;
+      const originalRoomId = room.id ?? "";
+      const originalEntityId = entity.id ?? "";
+      const originalWorldId = world.id ?? "";
 
       const fileBuffer = await exportAgent(sourceRuntime, "remap-test");
 
@@ -793,7 +793,7 @@ describe("agent-export", () => {
       sourceDb.agents.set(AGENT_ID, agent);
 
       const room = makeRoom();
-      sourceDb.rooms.set(room.id!, room);
+      sourceDb.rooms.set(room.id ?? "", room);
 
       // Create 500 memories
       for (let i = 0; i < 500; i++) {
@@ -805,7 +805,7 @@ describe("agent-export", () => {
         );
       }
 
-      sourceDb.participants.set(room.id!, {
+      sourceDb.participants.set(room.id ?? "", {
         entityIds: [AGENT_ID],
         userStates: new Map(),
       });
@@ -833,19 +833,19 @@ describe("agent-export", () => {
 
       const world1 = makeWorld({ name: "World One" });
       const world2 = makeWorld({ name: "World Two" });
-      sourceDb.worlds.set(world1.id!, world1);
-      sourceDb.worlds.set(world2.id!, world2);
+      sourceDb.worlds.set(world1.id ?? "", world1);
+      sourceDb.worlds.set(world2.id ?? "", world2);
 
       const room1 = makeRoom({ worldId: world1.id, name: "Room in W1" });
       const room2 = makeRoom({ worldId: world2.id, name: "Room in W2" });
       const room3 = makeRoom({ worldId: world2.id, name: "Second Room in W2" });
-      sourceDb.rooms.set(room1.id!, room1);
-      sourceDb.rooms.set(room2.id!, room2);
-      sourceDb.rooms.set(room3.id!, room3);
+      sourceDb.rooms.set(room1.id ?? "", room1);
+      sourceDb.rooms.set(room2.id ?? "", room2);
+      sourceDb.rooms.set(room3.id ?? "", room3);
 
       // Agent participates in all rooms
       for (const room of [room1, room2, room3]) {
-        sourceDb.participants.set(room.id!, {
+        sourceDb.participants.set(room.id ?? "", {
           entityIds: [AGENT_ID],
           userStates: new Map(),
         });
@@ -883,8 +883,8 @@ describe("agent-export", () => {
 
       // A room with no world — just direct participation
       const orphanRoom = makeRoom({ worldId: undefined, name: "Orphan Room" });
-      sourceDb.rooms.set(orphanRoom.id!, orphanRoom);
-      sourceDb.participants.set(orphanRoom.id!, {
+      sourceDb.rooms.set(orphanRoom.id ?? "", orphanRoom);
+      sourceDb.participants.set(orphanRoom.id ?? "", {
         entityIds: [AGENT_ID],
         userStates: new Map(),
       });
@@ -912,18 +912,18 @@ describe("agent-export", () => {
     it("preserves FOLLOWED and MUTED states after import", async () => {
       sourceDb.agents.set(AGENT_ID, makeAgent());
       const room = makeRoom();
-      sourceDb.rooms.set(room.id!, room);
+      sourceDb.rooms.set(room.id ?? "", room);
 
       const entityA = makeEntity({ names: ["Alice"] });
       const entityB = makeEntity({ names: ["Bob"] });
-      sourceDb.entities.set(entityA.id!, entityA);
-      sourceDb.entities.set(entityB.id!, entityB);
+      sourceDb.entities.set(entityA.id ?? "", entityA);
+      sourceDb.entities.set(entityB.id ?? "", entityB);
 
-      sourceDb.participants.set(room.id!, {
-        entityIds: [AGENT_ID, entityA.id!, entityB.id!],
+      sourceDb.participants.set(room.id ?? "", {
+        entityIds: [AGENT_ID, entityA.id ?? "", entityB.id ?? ""],
         userStates: new Map([
-          [entityA.id!, "FOLLOWED"],
-          [entityB.id!, "MUTED"],
+          [entityA.id ?? "", "FOLLOWED"],
+          [entityB.id ?? "", "MUTED"],
           [AGENT_ID, null],
         ]),
       });
@@ -958,16 +958,16 @@ describe("agent-export", () => {
     it("remaps entityId, roomId, worldId, sourceEntityId on components", async () => {
       sourceDb.agents.set(AGENT_ID, makeAgent());
       const world = makeWorld();
-      sourceDb.worlds.set(world.id!, world);
+      sourceDb.worlds.set(world.id ?? "", world);
       const room = makeRoom({ worldId: world.id });
-      sourceDb.rooms.set(room.id!, room);
+      sourceDb.rooms.set(room.id ?? "", room);
       const entity = makeEntity();
-      sourceDb.entities.set(entity.id!, entity);
+      sourceDb.entities.set(entity.id ?? "", entity);
       const entity2 = makeEntity({ names: ["Bob"] });
-      sourceDb.entities.set(entity2.id!, entity2);
+      sourceDb.entities.set(entity2.id ?? "", entity2);
 
-      sourceDb.participants.set(room.id!, {
-        entityIds: [AGENT_ID, entity.id!, entity2.id!],
+      sourceDb.participants.set(room.id ?? "", {
+        entityIds: [AGENT_ID, entity.id ?? "", entity2.id ?? ""],
         userStates: new Map(),
       });
 
@@ -979,10 +979,10 @@ describe("agent-export", () => {
       });
       sourceDb.components.push(comp);
 
-      const originalEntityId = entity.id!;
-      const originalRoomId = room.id!;
-      const originalWorldId = world.id!;
-      const originalSourceEntityId = entity2.id!;
+      const originalEntityId = entity.id ?? "";
+      const originalRoomId = room.id ?? "";
+      const originalWorldId = world.id ?? "";
+      const originalSourceEntityId = entity2.id ?? "";
 
       const fileBuffer = await exportAgent(sourceRuntime, "comp-remap");
       const targetDb = createMockDb();
@@ -1000,10 +1000,10 @@ describe("agent-export", () => {
       expect(importedComp.sourceEntityId).not.toBe(originalSourceEntityId);
 
       // But they should reference valid remapped IDs that exist in the target DB
-      expect(targetDb.entities.has(importedComp.entityId!)).toBe(true);
-      expect(targetDb.rooms.has(importedComp.roomId!)).toBe(true);
-      expect(targetDb.worlds.has(importedComp.worldId!)).toBe(true);
-      expect(targetDb.entities.has(importedComp.sourceEntityId!)).toBe(true);
+      expect(targetDb.entities.has((importedComp.entityId ?? ""))).toBe(true);
+      expect(targetDb.rooms.has((importedComp.roomId ?? ""))).toBe(true);
+      expect(targetDb.worlds.has((importedComp.worldId ?? ""))).toBe(true);
+      expect(targetDb.entities.has((importedComp.sourceEntityId ?? ""))).toBe(true);
     });
   });
 
@@ -1011,8 +1011,8 @@ describe("agent-export", () => {
     it("exports and imports memories of different types correctly", async () => {
       sourceDb.agents.set(AGENT_ID, makeAgent());
       const room = makeRoom();
-      sourceDb.rooms.set(room.id!, room);
-      sourceDb.participants.set(room.id!, {
+      sourceDb.rooms.set(room.id ?? "", room);
+      sourceDb.participants.set(room.id ?? "", {
         entityIds: [AGENT_ID],
         userStates: new Map(),
       });
@@ -1046,8 +1046,8 @@ describe("agent-export", () => {
     it("removes embedding vectors from exported memories", async () => {
       sourceDb.agents.set(AGENT_ID, makeAgent());
       const room = makeRoom();
-      sourceDb.rooms.set(room.id!, room);
-      sourceDb.participants.set(room.id!, {
+      sourceDb.rooms.set(room.id ?? "", room);
+      sourceDb.participants.set(room.id ?? "", {
         entityIds: [AGENT_ID],
         userStates: new Map(),
       });
@@ -1080,11 +1080,11 @@ describe("agent-export", () => {
     it("preserves tags and metadata on relationships", async () => {
       sourceDb.agents.set(AGENT_ID, makeAgent());
       const entity = makeEntity();
-      sourceDb.entities.set(entity.id!, entity);
+      sourceDb.entities.set(entity.id ?? "", entity);
       const room = makeRoom();
-      sourceDb.rooms.set(room.id!, room);
-      sourceDb.participants.set(room.id!, {
-        entityIds: [AGENT_ID, entity.id!],
+      sourceDb.rooms.set(room.id ?? "", room);
+      sourceDb.participants.set(room.id ?? "", {
+        entityIds: [AGENT_ID, entity.id ?? ""],
         userStates: new Map(),
       });
 
@@ -1168,8 +1168,8 @@ describe("agent-export", () => {
     it("preserves unicode content in memories", async () => {
       sourceDb.agents.set(AGENT_ID, makeAgent());
       const room = makeRoom();
-      sourceDb.rooms.set(room.id!, room);
-      sourceDb.participants.set(room.id!, {
+      sourceDb.rooms.set(room.id ?? "", room);
+      sourceDb.participants.set(room.id ?? "", {
         entityIds: [AGENT_ID],
         userStates: new Map(),
       });
@@ -1303,7 +1303,8 @@ describe("agent-export", () => {
       targetDb.agents.set(AGENT_ID, makeAgent());
       const result = await importAgent(createMockRuntime(targetDb), fileBuffer, "deep-inspect");
 
-      const imported = targetDb.agents.get(result.agentId)!;
+      const imported = targetDb.agents.get(result.agentId);
+      if (!imported) throw new Error("Expected imported agent to exist");
       expect(imported.name).toBe("RichAgent");
       expect(imported.username).toBe("richagent");
       expect(imported.bio).toEqual(["Line 1 of bio", "Line 2 of bio", "Line 3"]);
