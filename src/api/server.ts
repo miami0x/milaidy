@@ -47,6 +47,11 @@ import {
   fetchEvmNfts,
   fetchSolanaBalances,
   fetchSolanaNfts,
+  generateWalletForChain,
+  generateWalletKeys,
+  getWalletAddresses,
+  importWallet,
+  validatePrivateKey,
   type WalletBalancesResponse,
   type WalletChain,
   type WalletConfigStatus,
@@ -346,8 +351,7 @@ interface PluginEntry {
   configured: boolean;
   envKey: string | null;
   category: "ai-provider" | "connector" | "database" | "feature";
-  /** Where the plugin comes from: "bundled" (ships with Milaidy) or "store" (user-installed from registry). */
-  source: "bundled" | "store";
+  source: "bundled" | "store" | "custom";
   configKeys: string[];
   parameters: PluginParamDef[];
   validationErrors: Array<{ field: string; message: string }>;
@@ -552,6 +556,65 @@ function discoverInstalledPlugins(
       envKey: null,
       category,
       source: "store",
+      configKeys: [],
+      parameters: [],
+      validationErrors: [],
+      validationWarnings: [],
+    });
+  }
+
+  return entries.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Build PluginEntry records for custom drop-in plugins in ~/.milaidy/plugins/custom/. */
+function discoverCustomDropInPlugins(existingIds: Set<string>): PluginEntry[] {
+  const { resolveStateDir } = require("../config/paths.js") as { resolveStateDir: () => string };
+  const customDir = path.join(resolveStateDir(), "plugins", "custom");
+
+  let dirEntries: ReturnType<typeof fs.readdirSync>;
+  try {
+    dirEntries = fs.readdirSync(customDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const entries: PluginEntry[] = [];
+
+  for (const entry of dirEntries) {
+    if (!entry.isDirectory()) continue;
+
+    const pluginDir = path.join(customDir, entry.name);
+    let pluginName = entry.name;
+    let description = "Custom drop-in plugin";
+    let version = "";
+
+    try {
+      if (fs.existsSync(path.join(pluginDir, "package.json"))) {
+        const pkg = JSON.parse(fs.readFileSync(path.join(pluginDir, "package.json"), "utf-8")) as {
+          name?: string; description?: string; version?: string;
+        };
+        if (pkg.name) pluginName = pkg.name;
+        if (pkg.description) description = pkg.description;
+        if (pkg.version) version = pkg.version;
+      }
+    } catch { /* ignore read errors */ }
+
+    const id = pluginName
+      .replace(/^@[^/]+\/plugin-/, "")
+      .replace(/^@[^/]+\//, "")
+      .replace(/^plugin-/, "");
+
+    if (existingIds.has(id)) continue;
+
+    entries.push({
+      id,
+      name: pluginName,
+      description: version ? `${description} (v${version})` : description,
+      enabled: false,
+      configured: true,
+      envKey: null,
+      category: categorizePlugin(id),
+      source: "custom",
       configKeys: [],
       parameters: [],
       validationErrors: [],
@@ -1013,12 +1076,10 @@ async function readJsonBody<T = Record<string, unknown>>(
 }
 
 function json(res: http.ServerResponse, data: unknown, status = 200): void {
-  res.writeHead(status, {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  });
+  // Only set Content-Type; CORS headers are handled by applyCors()
+  if (!res.headersSent) {
+    res.writeHead(status, { "Content-Type": "application/json" });
+  }
   res.end(JSON.stringify(data));
 }
 
@@ -1057,6 +1118,18 @@ function getProviderOptions(): Array<{
     { id: "together", name: "Together AI", envKey: "TOGETHER_API_KEY", pluginName: "@elizaos/plugin-together", keyPrefix: null, description: "Open-source model hosting." },
     { id: "ollama", name: "Ollama (local)", envKey: null, pluginName: "@elizaos/plugin-ollama", keyPrefix: null, description: "Local models, no API key needed." },
   ];
+}
+
+function getCloudProviderOptions(): Array<{ id: string; name: string; description: string }> {
+  return [];
+}
+
+function getModelOptions(): Array<{ id: string; name: string; provider: string }> {
+  return [];
+}
+
+function getInventoryProviderOptions(): Array<{ id: string; name: string; description: string }> {
+  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -1399,13 +1472,14 @@ async function handleRequest(
     return;
   }
 
-  // CORS preflight
+  // CORS preflight — use the resolved origin from applyCors()
   if (method === "OPTIONS") {
-    res.writeHead(204, {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    });
+    // applyCors() already ran above and set the proper origin header.
+    // Just add the remaining preflight headers and respond 204.
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Milaidy-Token, X-Api-Key");
+    res.setHeader("Access-Control-Max-Age", "86400");
+    res.writeHead(204);
     res.end();
     return;
   }
@@ -2586,10 +2660,12 @@ async function handleRequest(
       freshConfig = state.config;
     }
 
-    // Merge user-installed plugins into the list (they don't exist in plugins.json)
+    // Merge user-installed and custom drop-in plugins into the list
     const bundledIds = new Set(state.plugins.map((p) => p.id));
     const installedEntries = discoverInstalledPlugins(freshConfig, bundledIds);
-    const allPlugins = [...state.plugins, ...installedEntries];
+    const knownIds = new Set([...bundledIds, ...installedEntries.map((p) => p.id)]);
+    const customEntries = discoverCustomDropInPlugins(knownIds);
+    const allPlugins = [...state.plugins, ...installedEntries, ...customEntries];
 
     // Update enabled status from runtime (if available)
     if (state.runtime) {
@@ -2837,9 +2913,9 @@ async function handleRequest(
       }
 
       // Trigger runtime restart if available
-      if (callCtx.onRestart) {
+      if (ctx?.onRestart) {
         addLog("info", "Triggering runtime restart...", "milaidy-api");
-        callCtx
+        ctx
           .onRestart()
           .then((newRuntime) => {
             if (newRuntime) {
