@@ -43,7 +43,7 @@ import { z } from "zod";
 const MAGIC_HEADER = "ELIZA_AGENT_V1\n";
 const MAGIC_BYTES = Buffer.from(MAGIC_HEADER, "utf-8"); // 15 bytes
 const PBKDF2_ITERATIONS = 600_000; // OWASP 2024 recommendation for SHA-256
-const MAX_PBKDF2_ITERATIONS = 10_000_000; // Cap imported iteration counts to prevent DoS
+const MAX_PBKDF2_ITERATIONS = 1_200_000; // 2× the default — reject anything higher on import
 const SALT_LEN = 32;
 const IV_LEN = 12; // AES-256-GCM standard nonce
 const TAG_LEN = 16; // AES-GCM authentication tag
@@ -157,23 +157,32 @@ const PayloadSchema = z.object({
 // Crypto helpers
 // ---------------------------------------------------------------------------
 
-function deriveKey(password: string, salt: Buffer, iterations: number): Buffer {
-  return crypto.pbkdf2Sync(password, salt, iterations, KEY_LEN, "sha256");
+function deriveKey(
+  password: string,
+  salt: Buffer,
+  iterations: number,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    crypto.pbkdf2(password, salt, iterations, KEY_LEN, "sha256", (err, key) => {
+      if (err) reject(err);
+      else resolve(key);
+    });
+  });
 }
 
-function encrypt(
+async function encrypt(
   plaintext: Buffer,
   password: string,
-): {
+): Promise<{
   salt: Buffer;
   iv: Buffer;
   tag: Buffer;
   ciphertext: Buffer;
   iterations: number;
-} {
+}> {
   const salt = crypto.randomBytes(SALT_LEN);
   const iv = crypto.randomBytes(IV_LEN);
-  const key = deriveKey(password, salt, PBKDF2_ITERATIONS);
+  const key = await deriveKey(password, salt, PBKDF2_ITERATIONS);
 
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
@@ -182,15 +191,15 @@ function encrypt(
   return { salt, iv, tag, ciphertext, iterations: PBKDF2_ITERATIONS };
 }
 
-function decrypt(
+async function decrypt(
   ciphertext: Buffer,
   password: string,
   salt: Buffer,
   iv: Buffer,
   tag: Buffer,
   iterations: number,
-): Buffer {
-  const key = deriveKey(password, salt, iterations);
+): Promise<Buffer> {
+  const key = await deriveKey(password, salt, iterations);
 
   const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
   decipher.setAuthTag(tag);
@@ -742,7 +751,7 @@ export async function exportAgent(
     `[agent-export] Payload: ${jsonString.length} bytes JSON → ${compressed.length} bytes compressed`,
   );
 
-  const encrypted = encrypt(compressed, password);
+  const encrypted = await encrypt(compressed, password);
   const fileBuffer = packFile(encrypted);
 
   logger.info(`[agent-export] Final file size: ${fileBuffer.length} bytes`);
@@ -778,7 +787,7 @@ export async function importAgent(
   // 2. Decrypt
   let compressed: Buffer;
   try {
-    compressed = decrypt(ciphertext, password, salt, iv, tag, iterations);
+    compressed = await decrypt(ciphertext, password, salt, iv, tag, iterations);
   } catch (err) {
     if (
       err instanceof Error &&
