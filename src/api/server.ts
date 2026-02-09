@@ -19,6 +19,7 @@ import {
   stringToUuid,
   type UUID,
 } from "@elizaos/core";
+import { type WebSocket, WebSocketServer } from "ws";
 import { CloudManager } from "../cloud/cloud-manager.js";
 import {
   configFileExists,
@@ -141,6 +142,8 @@ interface PluginParamDef {
   required: boolean;
   sensitive: boolean;
   default?: string;
+  /** Predefined options for dropdown selection (e.g. model names). */
+  options?: string[];
   /** Current value from process.env (masked if sensitive). */
   currentValue: string | null;
   /** Whether a value is currently set in the environment. */
@@ -155,10 +158,17 @@ interface PluginEntry {
   configured: boolean;
   envKey: string | null;
   category: "ai-provider" | "connector" | "database" | "feature";
+  /** Where the plugin comes from: "bundled" (ships with Milaidy) or "store" (user-installed from registry). */
+  source: "bundled" | "store";
   configKeys: string[];
   parameters: PluginParamDef[];
   validationErrors: Array<{ field: string; message: string }>;
   validationWarnings: Array<{ field: string; message: string }>;
+  npmName?: string;
+  version?: string;
+  pluginDeps?: string[];
+  /** Whether this plugin is currently active in the runtime. */
+  isActive?: boolean;
 }
 
 interface SkillEntry {
@@ -217,6 +227,8 @@ interface PluginIndexEntry {
   envKey: string | null;
   configKeys: string[];
   pluginParameters?: Record<string, Record<string, unknown>>;
+  version?: string;
+  pluginDeps?: string[];
 }
 
 interface PluginIndex {
@@ -245,6 +257,9 @@ function buildParamDefs(
       required: Boolean(def.required),
       sensitive,
       default: def.default as string | undefined,
+      options: Array.isArray(def.options)
+        ? (def.options as string[])
+        : undefined,
       currentValue: isSet
         ? sensitive
           ? maskValue(envValue ?? "")
@@ -253,6 +268,83 @@ function buildParamDefs(
       isSet,
     };
   });
+}
+
+/**
+ * Discover user-installed plugins from the Store (not bundled in the manifest).
+ * Reads from config.plugins.installs and tries to enrich with package.json metadata.
+ */
+function discoverInstalledPlugins(
+  config: MilaidyConfig,
+  bundledIds: Set<string>,
+): PluginEntry[] {
+  const installs = config.plugins?.installs;
+  if (!installs || typeof installs !== "object") return [];
+
+  const entries: PluginEntry[] = [];
+
+  for (const [packageName, record] of Object.entries(installs)) {
+    // Derive a short id from the package name (e.g. "@elizaos/plugin-foo" -> "foo")
+    const id = packageName
+      .replace(/^@[^/]+\/plugin-/, "")
+      .replace(/^@[^/]+\//, "")
+      .replace(/^plugin-/, "");
+
+    // Skip if it's already covered by the bundled manifest
+    if (bundledIds.has(id)) continue;
+
+    const category = categorizePlugin(id);
+    const installPath = (record as Record<string, string>).installPath;
+
+    // Try to read the plugin's package.json for metadata
+    let name = packageName;
+    let description = `Installed from registry (v${(record as Record<string, string>).version ?? "unknown"})`;
+
+    if (installPath) {
+      // Check npm layout first, then direct layout
+      const candidates = [
+        path.join(
+          installPath,
+          "node_modules",
+          ...packageName.split("/"),
+          "package.json",
+        ),
+        path.join(installPath, "package.json"),
+      ];
+      for (const pkgPath of candidates) {
+        try {
+          if (fs.existsSync(pkgPath)) {
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as {
+              name?: string;
+              description?: string;
+            };
+            if (pkg.name) name = pkg.name;
+            if (pkg.description) description = pkg.description;
+            break;
+          }
+        } catch {
+          // ignore read errors
+        }
+      }
+    }
+
+    entries.push({
+      id,
+      name,
+      description,
+      enabled: false, // Will be updated against the runtime below
+      configured: true,
+      envKey: null,
+      category,
+      source: "store",
+      configKeys: [],
+      parameters: [],
+      validationErrors: [],
+      validationWarnings: [],
+    });
+  }
+
+  return entries.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
@@ -318,10 +410,14 @@ function discoverPluginsFromManifest(): PluginEntry[] {
             configured,
             envKey,
             category,
+            source: "bundled" as const,
             configKeys: filteredConfigKeys,
             parameters,
             validationErrors: validation.errors,
             validationWarnings: validation.warnings,
+            npmName: p.npmName,
+            version: p.version,
+            pluginDeps: p.pluginDeps,
           };
         })
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -359,6 +455,7 @@ function categorizePlugin(
     "perplexity",
     "qwen",
     "minimax",
+    "zai",
   ];
   const connectors = [
     "telegram",
@@ -607,7 +704,9 @@ async function discoverSkills(
               source: string;
               path: string;
             }>;
-            getSkillScanStatus?: (slug: string) => "clean" | "warning" | "critical" | "blocked" | null;
+            getSkillScanStatus?: (
+              slug: string,
+            ) => "clean" | "warning" | "critical" | "blocked" | null;
           }
         | undefined;
       if (svc && typeof svc.getLoadedSkills === "function") {
@@ -978,6 +1077,14 @@ function getProviderOptions(): Array<{
       pluginName: "@elizaos/plugin-ollama",
       keyPrefix: null,
       description: "Local models, no API key needed.",
+    },
+    {
+      id: "zai",
+      name: "z.ai (GLM Coding Plan)",
+      envKey: "ZAI_API_KEY",
+      pluginName: "@homunculuslabs/plugin-zai",
+      keyPrefix: null,
+      description: "GLM models via z.ai Coding Plan.",
     },
   ];
 }
@@ -2038,22 +2145,41 @@ async function handleRequest(
 
   // ── GET /api/plugins ────────────────────────────────────────────────────
   if (method === "GET" && pathname === "/api/plugins") {
+    // Re-read config from disk so we pick up plugins installed since server start.
+    let freshConfig: MilaidyConfig;
+    try {
+      freshConfig = loadMilaidyConfig();
+    } catch {
+      freshConfig = state.config;
+    }
+
+    // Merge user-installed plugins into the list (they don't exist in plugins.json)
+    const bundledIds = new Set(state.plugins.map((p) => p.id));
+    const installedEntries = discoverInstalledPlugins(freshConfig, bundledIds);
+    const allPlugins: PluginEntry[] = [...state.plugins, ...installedEntries];
+
     // Update enabled status from runtime (if available)
     if (state.runtime) {
       const loadedNames = state.runtime.plugins.map((p) => p.name);
-      for (const plugin of state.plugins) {
+      for (const plugin of allPlugins) {
         const suffix = `plugin-${plugin.id}`;
-        plugin.enabled = loadedNames.some(
-          (name) =>
+        const packageName = `@elizaos/plugin-${plugin.id}`;
+        const isLoaded = loadedNames.some((name) => {
+          return (
             name === plugin.id ||
             name === suffix ||
-            name.endsWith(`/${suffix}`),
-        );
+            name === packageName ||
+            name.endsWith(`/${suffix}`) ||
+            name.includes(plugin.id)
+          );
+        });
+        plugin.enabled = isLoaded;
+        plugin.isActive = isLoaded;
       }
     }
 
     // Always refresh current env values and re-validate
-    for (const plugin of state.plugins) {
+    for (const plugin of allPlugins) {
       for (const param of plugin.parameters) {
         const envValue = process.env[param.key];
         param.isSet = Boolean(envValue?.trim());
@@ -2083,7 +2209,7 @@ async function handleRequest(
       plugin.validationWarnings = validation.warnings;
     }
 
-    json(res, { plugins: state.plugins });
+    json(res, { plugins: allPlugins });
     return;
   }
 
@@ -2162,6 +2288,64 @@ async function handleRequest(
     plugin.validationErrors = updated.errors;
     plugin.validationWarnings = updated.warnings;
 
+    // Update config.plugins.allow for hot-reload
+    if (body.enabled !== undefined) {
+      const packageName = `@elizaos/plugin-${pluginId}`;
+
+      // Initialize plugins.allow if it doesn't exist
+      if (!state.config.plugins) {
+        state.config.plugins = {};
+      }
+      if (!state.config.plugins.allow) {
+        state.config.plugins.allow = [];
+      }
+
+      const allowList = state.config.plugins.allow as string[];
+      const index = allowList.indexOf(packageName);
+
+      if (body.enabled && index === -1) {
+        // Add plugin to allow list
+        allowList.push(packageName);
+        logger.info(`[milaidy-api] Enabled plugin: ${packageName}`);
+      } else if (!body.enabled && index !== -1) {
+        // Remove plugin from allow list
+        allowList.splice(index, 1);
+        logger.info(`[milaidy-api] Disabled plugin: ${packageName}`);
+      }
+
+      // Save updated config
+      try {
+        saveMilaidyConfig(state.config);
+      } catch (err) {
+        logger.warn(
+          `[milaidy-api] Failed to save config: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+
+      // Trigger runtime restart if available
+      if (ctx?.onRestart) {
+        logger.info("[milaidy-api] Triggering runtime restart...");
+        ctx
+          .onRestart()
+          .then((newRuntime) => {
+            if (newRuntime) {
+              state.runtime = newRuntime;
+              state.agentState = "running";
+              state.agentName = newRuntime.character.name ?? "Milaidy";
+              state.startedAt = Date.now();
+              logger.info("[milaidy-api] Runtime restarted successfully");
+            } else {
+              logger.warn("[milaidy-api] Runtime restart returned null");
+            }
+          })
+          .catch((err) => {
+            logger.error(
+              `[milaidy-api] Runtime restart failed: ${err instanceof Error ? err.message : err}`,
+            );
+          });
+      }
+    }
+
     json(res, { ok: true, plugin });
     return;
   }
@@ -2171,9 +2355,38 @@ async function handleRequest(
     const { getRegistryPlugins } = await import(
       "../services/registry-client.js"
     );
+    const { listInstalledPlugins: listInstalled } = await import(
+      "../services/plugin-installer.js"
+    );
     try {
       const registry = await getRegistryPlugins();
-      const plugins = Array.from(registry.values());
+      const installed = await listInstalled();
+      const installedNames = new Set(installed.map((p) => p.name));
+
+      // Also check which plugins are loaded in the runtime
+      const loadedNames = state.runtime
+        ? new Set(state.runtime.plugins.map((p) => p.name))
+        : new Set<string>();
+
+      // Cross-reference with bundled manifest so the Store can hide them
+      const bundledIds = new Set(state.plugins.map((p) => p.id));
+
+      const plugins = Array.from(registry.values()).map((p) => {
+        const shortId = p.name
+          .replace(/^@[^/]+\/plugin-/, "")
+          .replace(/^@[^/]+\//, "")
+          .replace(/^plugin-/, "");
+        return {
+          ...p,
+          installed: installedNames.has(p.name),
+          installedVersion:
+            installed.find((i) => i.name === p.name)?.version ?? null,
+          loaded:
+            loadedNames.has(p.name) ||
+            loadedNames.has(p.name.replace("@elizaos/", "")),
+          bundled: bundledIds.has(shortId),
+        };
+      });
       json(res, { count: plugins.length, plugins });
     } catch (err) {
       error(
@@ -2390,6 +2603,306 @@ async function handleRequest(
       error(
         res,
         `Failed to list installed plugins: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      );
+    }
+    return;
+  }
+
+  // ── GET /api/skills/catalog ───────────────────────────────────────────
+  // Browse the full skill catalog (paginated).
+  if (method === "GET" && pathname === "/api/skills/catalog") {
+    try {
+      const { getCatalogSkills } = await import(
+        "../services/skill-catalog-client.js"
+      );
+      const all = await getCatalogSkills();
+      const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
+      const perPage = Math.min(
+        100,
+        Math.max(1, Number(url.searchParams.get("perPage")) || 50),
+      );
+      const sort = url.searchParams.get("sort") ?? "downloads";
+      const sorted = [...all];
+      if (sort === "downloads")
+        sorted.sort(
+          (a, b) =>
+            b.stats.downloads - a.stats.downloads || b.updatedAt - a.updatedAt,
+        );
+      else if (sort === "stars")
+        sorted.sort(
+          (a, b) => b.stats.stars - a.stats.stars || b.updatedAt - a.updatedAt,
+        );
+      else if (sort === "updated")
+        sorted.sort((a, b) => b.updatedAt - a.updatedAt);
+      else if (sort === "name")
+        sorted.sort((a, b) =>
+          (a.displayName ?? a.slug).localeCompare(b.displayName ?? b.slug),
+        );
+
+      // Resolve installed status from the AgentSkillsService
+      const installedSlugs = new Set<string>();
+      if (state.runtime) {
+        try {
+          const svc = state.runtime.getService("AGENT_SKILLS_SERVICE") as
+            | {
+                getLoadedSkills?: () => Array<{ slug: string; source: string }>;
+              }
+            | undefined;
+          if (svc && typeof svc.getLoadedSkills === "function") {
+            for (const s of svc.getLoadedSkills()) {
+              installedSlugs.add(s.slug);
+            }
+          }
+        } catch {
+          /* service may not be available */
+        }
+      }
+      // Also check locally discovered skills
+      for (const s of state.skills) {
+        installedSlugs.add(s.id);
+      }
+
+      const start = (page - 1) * perPage;
+      const skills = sorted.slice(start, start + perPage).map((s) => ({
+        ...s,
+        installed: installedSlugs.has(s.slug),
+      }));
+      json(res, {
+        total: all.length,
+        page,
+        perPage,
+        totalPages: Math.ceil(all.length / perPage),
+        installedCount: installedSlugs.size,
+        skills,
+      });
+    } catch (err) {
+      error(
+        res,
+        `Failed to load skill catalog: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      );
+    }
+    return;
+  }
+
+  // ── GET /api/skills/catalog/search ─────────────────────────────────────
+  if (method === "GET" && pathname === "/api/skills/catalog/search") {
+    const q = url.searchParams.get("q");
+    if (!q) {
+      error(res, "Missing query parameter ?q=", 400);
+      return;
+    }
+    try {
+      const { searchCatalogSkills } = await import(
+        "../services/skill-catalog-client.js"
+      );
+      const limit = Math.min(
+        100,
+        Math.max(1, Number(url.searchParams.get("limit")) || 30),
+      );
+      const results = await searchCatalogSkills(q, limit);
+      json(res, { query: q, count: results.length, results });
+    } catch (err) {
+      error(
+        res,
+        `Skill catalog search failed: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      );
+    }
+    return;
+  }
+
+  // ── GET /api/skills/catalog/:slug ──────────────────────────────────────
+  if (method === "GET" && pathname.startsWith("/api/skills/catalog/")) {
+    const slug = decodeURIComponent(
+      pathname.slice("/api/skills/catalog/".length),
+    );
+    // Exclude "search" which is handled above
+    if (slug && slug !== "search") {
+      try {
+        const { getCatalogSkill } = await import(
+          "../services/skill-catalog-client.js"
+        );
+        const skill = await getCatalogSkill(slug);
+        if (!skill) {
+          error(res, `Skill "${slug}" not found in catalog`, 404);
+          return;
+        }
+        json(res, { skill });
+      } catch (err) {
+        error(
+          res,
+          `Failed to fetch skill: ${err instanceof Error ? err.message : String(err)}`,
+          500,
+        );
+      }
+      return;
+    }
+  }
+
+  // ── POST /api/skills/catalog/refresh ───────────────────────────────────
+  if (method === "POST" && pathname === "/api/skills/catalog/refresh") {
+    try {
+      const { refreshCatalog } = await import(
+        "../services/skill-catalog-client.js"
+      );
+      const skills = await refreshCatalog();
+      json(res, { ok: true, count: skills.length });
+    } catch (err) {
+      error(
+        res,
+        `Catalog refresh failed: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      );
+    }
+    return;
+  }
+
+  // ── POST /api/skills/catalog/install ───────────────────────────────────
+  if (method === "POST" && pathname === "/api/skills/catalog/install") {
+    const body = await readJsonBody<{ slug: string; version?: string }>(
+      req,
+      res,
+    );
+    if (!body) return;
+    if (!body.slug) {
+      error(res, "Missing required field: slug", 400);
+      return;
+    }
+
+    if (!state.runtime) {
+      error(res, "Agent runtime not available — start the agent first", 503);
+      return;
+    }
+
+    try {
+      const service = state.runtime.getService("AGENT_SKILLS_SERVICE") as
+        | {
+            install?: (
+              slug: string,
+              opts?: { version?: string; force?: boolean },
+            ) => Promise<boolean>;
+            isInstalled?: (slug: string) => Promise<boolean>;
+          }
+        | undefined;
+
+      if (!service || typeof service.install !== "function") {
+        error(
+          res,
+          "AgentSkillsService not available — ensure @elizaos/plugin-agent-skills is loaded",
+          501,
+        );
+        return;
+      }
+
+      const alreadyInstalled =
+        typeof service.isInstalled === "function"
+          ? await service.isInstalled(body.slug)
+          : false;
+
+      if (alreadyInstalled) {
+        json(res, {
+          ok: true,
+          slug: body.slug,
+          message: `Skill "${body.slug}" is already installed`,
+          alreadyInstalled: true,
+        });
+        return;
+      }
+
+      const success = await service.install(body.slug, {
+        version: body.version,
+      });
+
+      if (success) {
+        // Refresh the skills list so the UI picks up the new skill
+        const workspaceDir =
+          state.config.agents?.defaults?.workspace ??
+          resolveDefaultAgentWorkspaceDir();
+        state.skills = await discoverSkills(
+          workspaceDir,
+          state.config,
+          state.runtime,
+        );
+
+        json(res, {
+          ok: true,
+          slug: body.slug,
+          message: `Skill "${body.slug}" installed successfully`,
+        });
+      } else {
+        error(res, `Failed to install skill "${body.slug}"`, 500);
+      }
+    } catch (err) {
+      error(
+        res,
+        `Skill install failed: ${err instanceof Error ? err.message : String(err)}`,
+        500,
+      );
+    }
+    return;
+  }
+
+  // ── POST /api/skills/catalog/uninstall ─────────────────────────────────
+  if (method === "POST" && pathname === "/api/skills/catalog/uninstall") {
+    const body = await readJsonBody<{ slug: string }>(req, res);
+    if (!body) return;
+    if (!body.slug) {
+      error(res, "Missing required field: slug", 400);
+      return;
+    }
+
+    if (!state.runtime) {
+      error(res, "Agent runtime not available — start the agent first", 503);
+      return;
+    }
+
+    try {
+      const service = state.runtime.getService("AGENT_SKILLS_SERVICE") as
+        | {
+            uninstall?: (slug: string) => Promise<boolean>;
+          }
+        | undefined;
+
+      if (!service || typeof service.uninstall !== "function") {
+        error(
+          res,
+          "AgentSkillsService not available — ensure @elizaos/plugin-agent-skills is loaded",
+          501,
+        );
+        return;
+      }
+
+      const success = await service.uninstall(body.slug);
+
+      if (success) {
+        // Refresh the skills list
+        const workspaceDir =
+          state.config.agents?.defaults?.workspace ??
+          resolveDefaultAgentWorkspaceDir();
+        state.skills = await discoverSkills(
+          workspaceDir,
+          state.config,
+          state.runtime,
+        );
+
+        json(res, {
+          ok: true,
+          slug: body.slug,
+          message: `Skill "${body.slug}" uninstalled successfully`,
+        });
+      } else {
+        error(
+          res,
+          `Failed to uninstall skill "${body.slug}" — it may be a bundled skill`,
+          400,
+        );
+      }
+    } catch (err) {
+      error(
+        res,
+        `Skill uninstall failed: ${err instanceof Error ? err.message : String(err)}`,
         500,
       );
     }
@@ -3084,7 +3597,8 @@ async function handleRequest(
     // Persist to config.env so it survives restarts
     if (!state.config.env) state.config.env = {};
     const envKey = chain === "evm" ? "EVM_PRIVATE_KEY" : "SOLANA_PRIVATE_KEY";
-    (state.config.env as Record<string, string>)[envKey] = process.env[envKey] ?? "";
+    (state.config.env as Record<string, string>)[envKey] =
+      process.env[envKey] ?? "";
 
     try {
       saveMilaidyConfig(state.config);
@@ -3238,7 +3752,12 @@ async function handleRequest(
   // ── GET /api/update/status ───────────────────────────────────────────────
   if (method === "GET" && pathname === "/api/update/status") {
     const { VERSION } = await import("../runtime/version.js");
-    const { resolveChannel, checkForUpdate, fetchAllChannelVersions, CHANNEL_DIST_TAGS } = await import("../services/update-checker.js");
+    const {
+      resolveChannel,
+      checkForUpdate,
+      fetchAllChannelVersions,
+      CHANNEL_DIST_TAGS,
+    } = await import("../services/update-checker.js");
     const { detectInstallMethod } = await import("../services/self-updater.js");
     const channel = resolveChannel(state.config.update);
 
@@ -3267,7 +3786,7 @@ async function handleRequest(
 
   // ── PUT /api/update/channel ────────────────────────────────────────────
   if (method === "PUT" && pathname === "/api/update/channel") {
-    const body = await readJsonBody(req, res) as { channel?: string } | null;
+    const body = (await readJsonBody(req, res)) as { channel?: string } | null;
     if (!body) return;
     const ch = body.channel;
     if (ch !== "stable" && ch !== "beta" && ch !== "nightly") {
@@ -3410,9 +3929,7 @@ async function handleRequest(
         count: 200,
       });
       // Sort by createdAt ascending
-      memories.sort(
-        (a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0),
-      );
+      memories.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
       const agentId = state.runtime.agentId;
       const messages = memories.map((m) => ({
         id: m.id ?? "",
@@ -3606,9 +4123,7 @@ async function handleRequest(
         const worldId = stringToUuid(`${agentName}-web-chat-world`);
         // Use a deterministic messageServerId so the settings provider
         // can reference the world by serverId after it is found.
-        const messageServerId = stringToUuid(
-          `${agentName}-web-server`,
-        ) as UUID;
+        const messageServerId = stringToUuid(`${agentName}-web-server`) as UUID;
         await runtime.ensureConnection({
           entityId: state.chatUserId,
           roomId: state.chatRoomId,
@@ -3893,47 +4408,73 @@ async function handleRequest(
       completedTodos: 0,
     };
     const autonomy = { enabled: true, thinking: false };
+    let goalsAvailable = false;
+    let todosAvailable = false;
 
     if (state.runtime) {
+      // Goals: access via the GOAL_DATA service registered by @elizaos/plugin-goals
       try {
-        // getGoals/getTodos are provided by plugin-goals/plugin-todo at runtime
-        // but are not part of the core IDatabaseAdapter interface.
-        const db = state.runtime.adapter as unknown as Record<
-          string,
-          ((...args: unknown[]) => Promise<unknown[]>) | undefined
-        >;
-        if (db) {
-          const agentId = state.runtime.agentId;
-          if (typeof db.getGoals === "function") {
-            const dbGoals = (await db.getGoals({
-              agentId,
-              count: 100,
-              onlyInProgress: false,
-            })) as Record<string, unknown>[];
-            goals.push(...dbGoals);
-            summary.totalGoals = dbGoals.length;
-            summary.completedGoals = dbGoals.filter(
-              (g) => g.status === "DONE" || g.status === "completed",
-            ).length;
-          }
-
-          if (typeof db.getTodos === "function") {
-            const dbTodos = (await db.getTodos({
-              agentId,
-            })) as Record<string, unknown>[];
-            todos.push(...dbTodos);
-            summary.totalTodos = dbTodos.length;
-            summary.completedTodos = dbTodos.filter(
-              (t) => t.isCompleted,
-            ).length;
-          }
+        const goalService = state.runtime.getService("GOAL_DATA" as never) as {
+          getDataService?: () => {
+            getGoals: (
+              filters: Record<string, unknown>,
+            ) => Promise<Record<string, unknown>[]>;
+          } | null;
+        } | null;
+        const goalData = goalService?.getDataService?.();
+        goalsAvailable = goalData != null;
+        if (goalData) {
+          const dbGoals = await goalData.getGoals({
+            ownerId: state.runtime.agentId,
+            ownerType: "agent",
+          });
+          goals.push(...dbGoals);
+          summary.totalGoals = dbGoals.length;
+          summary.completedGoals = dbGoals.filter(
+            (g) => g.isCompleted === true,
+          ).length;
         }
       } catch {
-        // Runtime may not have full DB support — return empties
+        // Plugin not loaded or errored — goals unavailable
+      }
+
+      // Todos: create a data service on the fly (plugin-todo pattern)
+      try {
+        const todoModule = (await import(
+          "@elizaos/plugin-todo"
+        )) as unknown as Record<string, unknown>;
+        const createTodoDataService = todoModule.createTodoDataService as
+          | ((rt: unknown) => {
+              getTodos: (
+                filters: Record<string, unknown>,
+              ) => Promise<Record<string, unknown>[]>;
+            })
+          | undefined;
+        if (createTodoDataService) {
+          const todoData = createTodoDataService(state.runtime);
+          todosAvailable = true;
+          const dbTodos = await todoData.getTodos({
+            agentId: state.runtime.agentId,
+          });
+          todos.push(...dbTodos);
+          summary.totalTodos = dbTodos.length;
+          summary.completedTodos = dbTodos.filter(
+            (t) => t.isCompleted === true,
+          ).length;
+        }
+      } catch {
+        // Plugin not loaded or errored — todos unavailable
       }
     }
 
-    json(res, { goals, todos, summary, autonomy });
+    json(res, {
+      goals,
+      todos,
+      summary,
+      autonomy,
+      goalsAvailable,
+      todosAvailable,
+    });
     return;
   }
 
@@ -4419,6 +4960,107 @@ export async function startApiServer(opts?: {
     }
   });
 
+  // ── WebSocket Server ─────────────────────────────────────────────────────
+  const wss = new WebSocketServer({ noServer: true });
+  const wsClients = new Set<WebSocket>();
+
+  // Handle upgrade requests for WebSocket
+  server.on("upgrade", (request, socket, head) => {
+    try {
+      const { pathname: wsPath } = new URL(
+        request.url ?? "/",
+        `http://${request.headers.host}`,
+      );
+      if (wsPath === "/ws") {
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          wss.emit("connection", ws, request);
+        });
+      } else {
+        socket.destroy();
+      }
+    } catch (err) {
+      logger.error(
+        `[milaidy-api] WebSocket upgrade error: ${err instanceof Error ? err.message : err}`,
+      );
+      socket.destroy();
+    }
+  });
+
+  // Handle WebSocket connections
+  wss.on("connection", (ws: WebSocket) => {
+    wsClients.add(ws);
+    addLog("info", "WebSocket client connected", "websocket");
+
+    // Send initial status (flattened shape — matches UI AgentStatus)
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "status",
+          state: state.agentState,
+          agentName: state.agentName,
+          model: state.model,
+          startedAt: state.startedAt,
+        }),
+      );
+    } catch (err) {
+      logger.error(
+        `[milaidy-api] WebSocket send error: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+
+    ws.on("message", (data) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === "ping") {
+          ws.send(JSON.stringify({ type: "pong" }));
+        }
+      } catch (err) {
+        logger.error(
+          `[milaidy-api] WebSocket message error: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    });
+
+    ws.on("close", () => {
+      wsClients.delete(ws);
+      addLog("info", "WebSocket client disconnected", "websocket");
+    });
+
+    ws.on("error", (err) => {
+      logger.error(
+        `[milaidy-api] WebSocket error: ${err instanceof Error ? err.message : err}`,
+      );
+      wsClients.delete(ws);
+    });
+  });
+
+  // Broadcast status to all connected WebSocket clients (flattened — PR #36 fix)
+  const broadcastStatus = () => {
+    const statusData = {
+      type: "status",
+      state: state.agentState,
+      agentName: state.agentName,
+      model: state.model,
+      startedAt: state.startedAt,
+    };
+    const message = JSON.stringify(statusData);
+    for (const client of wsClients) {
+      if (client.readyState === 1) {
+        // OPEN
+        try {
+          client.send(message);
+        } catch (err) {
+          logger.error(
+            `[milaidy-api] WebSocket broadcast error: ${err instanceof Error ? err.message : err}`,
+          );
+        }
+      }
+    }
+  };
+
+  // Broadcast status every 5 seconds
+  const statusInterval = setInterval(broadcastStatus, 5000);
+
   /** Hot-swap the runtime reference (used after an in-process restart). */
   const updateRuntime = (rt: AgentRuntime): void => {
     state.runtime = rt;
@@ -4427,6 +5069,8 @@ export async function startApiServer(opts?: {
     state.agentName = rt.character.name ?? "Milaidy";
     state.startedAt = Date.now();
     addLog("info", `Runtime restarted — agent: ${state.agentName}`, "system");
+    // Broadcast status update immediately after restart
+    broadcastStatus();
   };
 
   return new Promise((resolve) => {
@@ -4446,6 +5090,8 @@ export async function startApiServer(opts?: {
         port: actualPort,
         close: () =>
           new Promise<void>((r) => {
+            clearInterval(statusInterval);
+            wss.close();
             server.close(() => r());
           }),
         updateRuntime,

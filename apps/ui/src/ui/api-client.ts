@@ -193,6 +193,8 @@ export interface PluginParamDef {
   required: boolean;
   sensitive: boolean;
   default?: string;
+  /** Predefined options for dropdown selection (e.g. model names). */
+  options?: string[];
   currentValue: string | null;
   isSet: boolean;
 }
@@ -205,12 +207,32 @@ export interface PluginInfo {
   configured: boolean;
   envKey: string | null;
   category: "ai-provider" | "connector" | "database" | "feature";
+  source: "bundled" | "store";
   parameters: PluginParamDef[];
   validationErrors: Array<{ field: string; message: string }>;
   validationWarnings: Array<{ field: string; message: string }>;
+  npmName?: string;
+  version?: string;
+  pluginDeps?: string[];
 }
 
 export interface ChatMessage {
+  role: "user" | "assistant";
+  text: string;
+  timestamp: number;
+}
+
+// Conversations
+export interface Conversation {
+  id: string;
+  title: string;
+  roomId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ConversationMessage {
+  id: string;
   role: "user" | "assistant";
   text: string;
   timestamp: number;
@@ -221,6 +243,7 @@ export interface SkillInfo {
   name: string;
   description: string;
   enabled: boolean;
+  scanStatus?: "clean" | "warning" | "critical" | "blocked" | null;
 }
 
 export interface SkillScanReportSummary {
@@ -230,6 +253,46 @@ export interface SkillScanReportSummary {
   findings: Array<{ ruleId: string; severity: string; file: string; line: number; message: string; evidence: string }>;
   manifestFindings: Array<{ ruleId: string; severity: string; file: string; message: string }>;
   skillPath: string;
+}
+
+// Skill Catalog types
+
+export interface CatalogSkillStats {
+  comments: number;
+  downloads: number;
+  installsAllTime: number;
+  installsCurrent: number;
+  stars: number;
+  versions: number;
+}
+
+export interface CatalogSkillVersion {
+  version: string;
+  createdAt: number;
+  changelog: string;
+}
+
+export interface CatalogSkill {
+  slug: string;
+  displayName: string;
+  summary: string | null;
+  tags: Record<string, string>;
+  stats: CatalogSkillStats;
+  createdAt: number;
+  updatedAt: number;
+  latestVersion: CatalogSkillVersion | null;
+  installed?: boolean;
+}
+
+export interface CatalogSearchResult {
+  slug: string;
+  displayName: string;
+  summary: string | null;
+  score: number;
+  latestVersion: string | null;
+  downloads: number;
+  stars: number;
+  installs: number;
 }
 
 export interface LogEntry {
@@ -243,6 +306,61 @@ export interface ExtensionStatus {
   relayReachable: boolean;
   relayPort: number;
   extensionPath: string | null;
+}
+
+// Registry / Plugin Store types
+
+export interface RegistryPlugin {
+  name: string;
+  gitRepo: string;
+  gitUrl: string;
+  description: string;
+  homepage: string | null;
+  topics: string[];
+  stars: number;
+  language: string;
+  npm: {
+    package: string;
+    v0Version: string | null;
+    v1Version: string | null;
+    v2Version: string | null;
+  };
+  git: {
+    v0Branch: string | null;
+    v1Branch: string | null;
+    v2Branch: string | null;
+  };
+  supports: { v0: boolean; v1: boolean; v2: boolean };
+  installed: boolean;
+  installedVersion: string | null;
+  loaded: boolean;
+  bundled: boolean;
+}
+
+export interface RegistrySearchResult {
+  name: string;
+  description: string;
+  score: number;
+  tags: string[];
+  latestVersion: string | null;
+  stars: number;
+  supports: { v0: boolean; v1: boolean; v2: boolean };
+  repository: string;
+}
+
+export interface InstalledPlugin {
+  name: string;
+  version: string;
+  installPath: string;
+  installedAt: string;
+}
+
+export interface PluginInstallResult {
+  ok: boolean;
+  plugin?: { name: string; version: string; installPath: string };
+  requiresRestart?: boolean;
+  message?: string;
+  error?: string;
 }
 
 // Wallet types
@@ -260,6 +378,20 @@ export interface SolanaNft { mint: string; name: string; description: string; im
 export interface WalletNftsResponse { evm: Array<{ chain: string; nfts: EvmNft[] }>; solana: { nfts: SolanaNft[] } | null }
 export interface WalletConfigStatus { alchemyKeySet: boolean; heliusKeySet: boolean; birdeyeKeySet: boolean; evmChains: string[]; evmAddress: string | null; solanaAddress: string | null }
 export interface WalletExportResult { evm: { privateKey: string; address: string | null } | null; solana: { privateKey: string; address: string | null } | null }
+
+// Software Updates
+export type ReleaseChannel = "stable" | "beta" | "nightly";
+export interface UpdateStatus {
+  currentVersion: string;
+  channel: ReleaseChannel;
+  installMethod: string;
+  updateAvailable: boolean;
+  latestVersion: string | null;
+  channels: Record<ReleaseChannel, string | null>;
+  distTags: Record<ReleaseChannel, string>;
+  lastCheckAt: string | null;
+  error: string | null;
+}
 
 // Cloud
 export interface CloudStatus { connected: boolean; userId?: string; organizationId?: string; topUpUrl?: string; reason?: string }
@@ -382,6 +514,12 @@ export interface RegistryPluginItem {
 }
 
 // App types
+export interface AppViewerConfig {
+  url: string;
+  embedParams?: Record<string, string>;
+  postMessageAuth?: boolean;
+  sandbox?: string;
+}
 export interface RegistryAppInfo {
   name: string;
   displayName: string;
@@ -396,10 +534,15 @@ export interface RegistryAppInfo {
   latestVersion: string | null;
   supports: { v0: boolean; v1: boolean; v2: boolean };
   npm: { package: string; v0Version: string | null; v1Version: string | null; v2Version: string | null };
+  viewer?: AppViewerConfig;
 }
 export interface InstalledAppInfo { name: string; displayName: string; version: string; installPath: string; installedAt: string; isRunning: boolean }
-export interface RunningAppInfo { name: string; displayName: string; url: string; launchType: string; launchedAt: string; port: number | null }
-export interface AppLaunchResult { url: string; launchType: string; displayName: string }
+export interface AppLaunchResult {
+  pluginInstalled: boolean;
+  needsRestart: boolean;
+  displayName: string;
+  viewer: AppViewerConfig | null;
+}
 
 // WebSocket
 
@@ -600,6 +743,90 @@ export class MilaidyClient {
     return this.fetch("/api/extension/status");
   }
 
+  // Skill Catalog
+
+  async getSkillCatalog(opts?: { page?: number; perPage?: number; sort?: string }): Promise<{
+    total: number;
+    page: number;
+    perPage: number;
+    totalPages: number;
+    skills: CatalogSkill[];
+  }> {
+    const params = new URLSearchParams();
+    if (opts?.page) params.set("page", String(opts.page));
+    if (opts?.perPage) params.set("perPage", String(opts.perPage));
+    if (opts?.sort) params.set("sort", opts.sort);
+    const qs = params.toString();
+    return this.fetch(`/api/skills/catalog${qs ? `?${qs}` : ""}`);
+  }
+
+  async searchSkillCatalog(query: string, limit = 30): Promise<{
+    query: string;
+    count: number;
+    results: CatalogSearchResult[];
+  }> {
+    return this.fetch(`/api/skills/catalog/search?q=${encodeURIComponent(query)}&limit=${limit}`);
+  }
+
+  async getSkillCatalogDetail(slug: string): Promise<{ skill: CatalogSkill }> {
+    return this.fetch(`/api/skills/catalog/${encodeURIComponent(slug)}`);
+  }
+
+  async refreshSkillCatalog(): Promise<{ ok: boolean; count: number }> {
+    return this.fetch("/api/skills/catalog/refresh", { method: "POST" });
+  }
+
+  async installCatalogSkill(slug: string, version?: string): Promise<{
+    ok: boolean;
+    slug: string;
+    message: string;
+    alreadyInstalled?: boolean;
+  }> {
+    return this.fetch("/api/skills/catalog/install", {
+      method: "POST",
+      body: JSON.stringify({ slug, version }),
+    });
+  }
+
+  async uninstallCatalogSkill(slug: string): Promise<{
+    ok: boolean;
+    slug: string;
+    message: string;
+  }> {
+    return this.fetch("/api/skills/catalog/uninstall", {
+      method: "POST",
+      body: JSON.stringify({ slug }),
+    });
+  }
+
+  // Registry / Plugin Store
+
+  async getRegistryPlugins(): Promise<{ count: number; plugins: RegistryPlugin[] }> {
+    return this.fetch("/api/registry/plugins");
+  }
+
+  async getRegistryPluginInfo(name: string): Promise<{ plugin: RegistryPlugin }> {
+    return this.fetch(`/api/registry/plugins/${encodeURIComponent(name)}`);
+  }
+
+  async getInstalledPlugins(): Promise<{ count: number; plugins: InstalledPlugin[] }> {
+    return this.fetch("/api/plugins/installed");
+  }
+
+  async installRegistryPlugin(name: string, autoRestart = true): Promise<PluginInstallResult> {
+    return this.fetch("/api/plugins/install", {
+      method: "POST",
+      body: JSON.stringify({ name, autoRestart }),
+    });
+  }
+
+  async uninstallRegistryPlugin(name: string, autoRestart = true): Promise<{ ok: boolean; pluginName: string; message: string; error?: string }> {
+    return this.fetch("/api/plugins/uninstall", {
+      method: "POST",
+      body: JSON.stringify({ name, autoRestart }),
+    });
+  }
+
   // Agent Export / Import
 
   /**
@@ -713,6 +940,14 @@ export class MilaidyClient {
   async updateWalletConfig(config: Record<string, string>): Promise<{ ok: boolean }> { return this.fetch("/api/wallet/config", { method: "PUT", body: JSON.stringify(config) }); }
   async exportWalletKeys(): Promise<WalletExportResult> { return this.fetch("/api/wallet/export", { method: "POST", body: JSON.stringify({ confirm: true }) }); }
 
+  // Software Updates
+  async getUpdateStatus(force = false): Promise<UpdateStatus> {
+    return this.fetch(`/api/update/status${force ? "?force=true" : ""}`);
+  }
+  async setUpdateChannel(channel: "stable" | "beta" | "nightly"): Promise<{ channel: string }> {
+    return this.fetch("/api/update/channel", { method: "PUT", body: JSON.stringify({ channel }) });
+  }
+
   // Cloud
   async getCloudStatus(): Promise<CloudStatus> { return this.fetch("/api/cloud/status"); }
   async getCloudCredits(): Promise<CloudCredits> { return this.fetch("/api/cloud/credits"); }
@@ -721,16 +956,13 @@ export class MilaidyClient {
   async listApps(): Promise<RegistryAppInfo[]> { return this.fetch("/api/apps"); }
   async searchApps(query: string): Promise<RegistryAppInfo[]> { return this.fetch(`/api/apps/search?q=${encodeURIComponent(query)}`); }
   async listInstalledApps(): Promise<InstalledAppInfo[]> { return this.fetch("/api/apps/installed"); }
-  async listRunningApps(): Promise<RunningAppInfo[]> { return this.fetch("/api/apps/running"); }
-  async getAppInfo(name: string): Promise<RegistryAppInfo> { return this.fetch(`/api/apps/info/${encodeURIComponent(name)}`); }
-  async installApp(name: string): Promise<{ success: boolean; name: string; version: string; error?: string }> {
-    return this.fetch("/api/apps/install", { method: "POST", body: JSON.stringify({ name }) });
-  }
-  async launchApp(name: string): Promise<AppLaunchResult> {
-    return this.fetch("/api/apps/launch", { method: "POST", body: JSON.stringify({ name }) });
-  }
   async stopApp(name: string): Promise<{ success: boolean }> {
     return this.fetch("/api/apps/stop", { method: "POST", body: JSON.stringify({ name }) });
+  }
+  async getAppInfo(name: string): Promise<RegistryAppInfo> { return this.fetch(`/api/apps/info/${encodeURIComponent(name)}`); }
+  /** Launch an app: installs its plugin (if needed), returns viewer config for iframe. */
+  async launchApp(name: string): Promise<AppLaunchResult> {
+    return this.fetch("/api/apps/launch", { method: "POST", body: JSON.stringify({ name }) });
   }
   async listRegistryPlugins(): Promise<RegistryPluginItem[]> { return this.fetch("/api/apps/plugins"); }
   async searchRegistryPlugins(query: string): Promise<RegistryPluginItem[]> { return this.fetch(`/api/apps/plugins/search?q=${encodeURIComponent(query)}`); }
@@ -814,8 +1046,8 @@ export class MilaidyClient {
 
   // Workbench
 
-  async getWorkbenchOverview(): Promise<WorkbenchOverview> {
-    return this.fetch("/api/workbench");
+  async getWorkbenchOverview(): Promise<WorkbenchOverview & { goalsAvailable?: boolean; todosAvailable?: boolean }> {
+    return this.fetch("/api/workbench/overview");
   }
 
   async createWorkbenchGoal(data: { name: string; description: string; tags: string[]; priority: number }): Promise<void> {
@@ -971,6 +1203,43 @@ export class MilaidyClient {
     return this.fetch<{ text: string; agentName: string }>("/api/chat", {
       method: "POST",
       body: JSON.stringify({ text }),
+    });
+  }
+
+  // Conversations
+
+  async listConversations(): Promise<{ conversations: Conversation[] }> {
+    return this.fetch("/api/conversations");
+  }
+
+  async createConversation(title?: string): Promise<{ conversation: Conversation }> {
+    return this.fetch("/api/conversations", {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    });
+  }
+
+  async getConversationMessages(id: string): Promise<{ messages: ConversationMessage[] }> {
+    return this.fetch(`/api/conversations/${encodeURIComponent(id)}/messages`);
+  }
+
+  async sendConversationMessage(id: string, text: string): Promise<{ text: string; agentName: string }> {
+    return this.fetch(`/api/conversations/${encodeURIComponent(id)}/messages`, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+  }
+
+  async renameConversation(id: string, title: string): Promise<{ conversation: Conversation }> {
+    return this.fetch(`/api/conversations/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    });
+  }
+
+  async deleteConversation(id: string): Promise<{ ok: boolean }> {
+    return this.fetch(`/api/conversations/${encodeURIComponent(id)}`, {
+      method: "DELETE",
     });
   }
 

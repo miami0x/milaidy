@@ -19,6 +19,8 @@ import {
   type OnboardingOptions,
   type InventoryProviderOption,
   type ExtensionStatus,
+  type RegistryPlugin,
+  type CatalogSkill,
   type WalletAddresses,
   type WalletBalancesResponse,
   type WalletNftsResponse,
@@ -34,12 +36,17 @@ import {
   type McpMarketplaceResult,
   type McpRegistryServerDetail,
   type McpServerStatus,
+  type UpdateStatus,
+  type ReleaseChannel,
 } from "./api-client.js";
+import { type Conversation, type ConversationMessage } from "./api-client.js";
 import { tabFromPath, pathForTab, type Tab, TAB_GROUPS, titleForTab } from "./navigation.js";
 import "./database-viewer.js";
 import "./apps-view.js";
+import "./game-view.js";
+import "./conversations-sidebar.js";
+import "./workbench-sidebar.js";
 
-const CHAT_STORAGE_KEY = "milaidy:chatMessages";
 const THEME_STORAGE_KEY = "milaidy:theme";
 
 type ThemeName = "milady" | "qt314" | "web2000" | "programmer" | "haxor" | "psycho";
@@ -67,8 +74,12 @@ export class MilaidyApp extends LitElement {
   @state() chatMessages: ChatMessage[] = [];
   @state() chatInput = "";
   @state() chatSending = false;
+  @state() conversations: Conversation[] = [];
+  @state() activeConversationId: string | null = null;
+  @state() conversationMessages: ConversationMessage[] = [];
   @state() plugins: PluginInfo[] = [];
   @state() pluginFilter: "all" | "ai-provider" | "connector" | "feature" = "all";
+  @state() pluginStatusFilter: "all" | "enabled" | "disabled" = "all";
   @state() pluginSearch = "";
   @state() pluginSettingsOpen: Set<string> = new Set();
   @state() pluginAdvancedOpen: Set<string> = new Set();
@@ -96,6 +107,11 @@ export class MilaidyApp extends LitElement {
   @state() cloudCreditsCritical = false;
   @state() cloudTopUpUrl = "https://www.elizacloud.ai/dashboard/billing";
   private cloudPollInterval: number | null = null;
+
+  // Software updates state
+  @state() updateStatus: UpdateStatus | null = null;
+  @state() updateLoading = false;
+  @state() updateChannelSaving = false;
   @state() walletAddresses: WalletAddresses | null = null;
   @state() walletConfig: WalletConfigStatus | null = null;
   @state() walletBalances: WalletBalancesResponse | null = null;
@@ -108,6 +124,33 @@ export class MilaidyApp extends LitElement {
   @state() walletApiKeySaving = false;
   @state() inventorySort: "chain" | "symbol" | "value" = "value";
   @state() walletError: string | null = null;
+
+  // Plugin Store state
+  @state() storePlugins: RegistryPlugin[] = [];
+  @state() storeSearch = "";
+  @state() storeFilter: "all" | "installed" | "ai-provider" | "connector" | "feature" = "all";
+  @state() storeShowBundled = false;
+  @state() storeLoading = false;
+  @state() storeInstalling: Set<string> = new Set();
+  @state() storeUninstalling: Set<string> = new Set();
+  @state() storeError: string | null = null;
+  @state() storeDetailPlugin: RegistryPlugin | null = null;
+
+  // Store sub-tab: plugins vs skills
+  @state() storeSubTab: "plugins" | "skills" = "plugins";
+
+  // Skill Catalog state
+  @state() catalogSkills: CatalogSkill[] = [];
+  @state() catalogTotal = 0;
+  @state() catalogPage = 1;
+  @state() catalogTotalPages = 1;
+  @state() catalogSort: "downloads" | "stars" | "updated" | "name" = "downloads";
+  @state() catalogSearch = "";
+  @state() catalogLoading = false;
+  @state() catalogError: string | null = null;
+  @state() catalogDetailSkill: CatalogSkill | null = null;
+  @state() catalogInstalling: Set<string> = new Set();
+  @state() catalogUninstalling: Set<string> = new Set();
 
   // Character state
   @state() characterData: CharacterData | null = null;
@@ -146,6 +189,13 @@ export class MilaidyApp extends LitElement {
   @state() onboardingRpcKeys: Record<string, string> = {};
   @state() private isMobileDevice = false;
 
+  // Active game state (for the "game" tab)
+  @state() private activeGameApp = "";
+  @state() private activeGameDisplayName = "";
+  @state() private activeGameViewerUrl = "";
+  @state() private activeGameSandbox = "allow-scripts allow-same-origin allow-popups";
+  @state() private activeGamePostMessageAuth = false;
+
   // Skills Marketplace state
   @state() skillsMarketplaceQuery = "";
   @state() skillsMarketplaceResults: SkillMarketplaceResult[] = [];
@@ -157,7 +207,7 @@ export class MilaidyApp extends LitElement {
   @state() skillsMarketplaceAction = "";
   @state() skillsMarketplaceManualGithubUrl = "";
   @state() skillToggleAction = "";
-  @state() skillsSubTab: "my" | "browse" | "review" = "my";
+  @state() skillsSubTab: "my" | "browse" = "my";
   @state() skillCreateName = "";
   @state() skillCreateDescription = "";
   @state() skillCreating = false;
@@ -184,6 +234,8 @@ export class MilaidyApp extends LitElement {
   // Workbench state
   @state() workbenchLoading = false;
   @state() workbench: WorkbenchOverview | null = null;
+  @state() workbenchGoalsAvailable = false;
+  @state() workbenchTodosAvailable = false;
   @state() workbenchEditingGoalId: string | null = null;
   @state() workbenchGoalName = "";
   @state() workbenchGoalDescription = "";
@@ -240,12 +292,34 @@ export class MilaidyApp extends LitElement {
       flex-direction: column;
       flex: 1;
       min-height: 0;
-      max-width: 900px;
+      max-width: 80%;
       margin: 0 auto;
-      padding: 0 20px;
+      padding: 0 32px;
       width: 100%;
       box-sizing: border-box;
     }
+
+    .app-shell.chat-layout {
+      padding: 0;
+    }
+
+    .app-shell.chat-layout > header,
+    .app-shell.chat-layout > nav {
+      padding-left: 20px;
+      padding-right: 20px;
+    }
+
+    .content-row {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .content-row > main {
+      flex: 1;
+      min-width: 0;
+    }
+
 
     .pairing-shell {
       max-width: 560px;
@@ -1080,6 +1154,13 @@ export class MilaidyApp extends LitElement {
       color: var(--muted);
     }
 
+    /* Plugin list container - scrollable wrapper */
+    .plugins-scroll-container {
+      overflow-y: auto;
+      max-height: calc(100vh - 380px);
+      margin-top: 16px;
+    }
+
     /* Plugin list */
     .plugin-list {
       display: flex;
@@ -1119,68 +1200,47 @@ export class MilaidyApp extends LitElement {
       border-color: var(--ok);
     }
 
-    /* Collapsible settings */
-    .plugin-settings-toggle {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px solid var(--border);
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 600;
-      user-select: none;
-    }
+    /* ── Plugin UI Design Language ─────────────────────────────────────── */
 
-    .plugin-settings-toggle:hover {
-      opacity: 0.8;
-    }
-
-    .plugin-settings-toggle .settings-chevron {
+    /* Shared chevron for expand/collapse */
+    .settings-chevron {
       display: inline-block;
       transition: transform 0.15s ease;
       font-size: 10px;
     }
 
-    .plugin-settings-toggle .settings-chevron.open {
+    .settings-chevron.open {
       transform: rotate(90deg);
     }
 
-    .plugin-settings-dot {
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
+    /* Search with clear button */
+    .pc-search-wrap {
+      position: relative;
+      margin-bottom: 12px;
     }
 
-    .plugin-settings-dot.all-set {
-      background: #2ecc71;
+    .pc-search-wrap .plugin-search {
+      margin-bottom: 0;
+      padding-right: 32px;
     }
 
-    .plugin-settings-dot.missing {
-      background: #e74c3c;
+    .pc-search-clear {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 2px 6px;
+      line-height: 1;
     }
 
-    .plugin-settings-body {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      margin-top: 10px;
-      padding: 12px;
-      background: var(--surface);
-      border: 1px solid var(--border);
+    .pc-search-clear:hover {
+      color: var(--text);
     }
-
-    .plugin-settings-body input {
-      padding: 6px 10px;
-      border: 1px solid var(--border);
-      background: var(--card);
-      font-size: 12px;
-      font-family: var(--mono);
-    }
-
-    /* ── Plugin UI Design Language ─────────────────────────────────────── */
 
     .pc-summary {
       display: flex;
@@ -1228,6 +1288,101 @@ export class MilaidyApp extends LitElement {
       background: var(--bg-hover);
     }
 
+    .pc-filter-row {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .pc-filter-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-right: 4px;
+    }
+
+    /* Toolbar */
+    .pc-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+
+    .pc-toolbar-actions {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .pc-toolbar-btn {
+      padding: 3px 10px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 11px;
+      transition: all var(--duration-fast);
+    }
+
+    .pc-toolbar-btn:hover {
+      color: var(--text);
+      background: var(--bg-hover);
+    }
+
+    /* Version + deps in cards */
+    .pc-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 2px;
+      flex-wrap: wrap;
+    }
+
+    .pc-version {
+      font-size: 10px;
+      font-family: var(--mono);
+      color: var(--muted);
+      opacity: 0.7;
+    }
+
+    .pc-npm {
+      font-size: 10px;
+      font-family: var(--mono);
+      color: var(--muted);
+      opacity: 0.6;
+    }
+
+    .pc-deps {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+
+    .pc-dep-tag {
+      font-size: 9px;
+      padding: 1px 5px;
+      border: 1px solid var(--border);
+      background: var(--accent-subtle);
+      color: var(--muted);
+      letter-spacing: 0.2px;
+    }
+
+    .pc-dep-label {
+      font-size: 9px;
+      color: var(--muted);
+      opacity: 0.7;
+    }
+
+    /* Hidden file input for import */
+    .pc-file-input {
+      display: none;
+    }
+
     .pc-empty {
       text-align: center;
       padding: 40px 20px;
@@ -1251,6 +1406,10 @@ export class MilaidyApp extends LitElement {
 
     .pc-card.pc-enabled {
       border-left: 3px solid var(--accent);
+    }
+
+    .pc-card.pc-needs-config {
+      border-left-color: var(--warn);
     }
 
     .pc-header {
@@ -1320,7 +1479,7 @@ export class MilaidyApp extends LitElement {
 
     .pc-progress {
       width: 52px;
-      height: 3px;
+      height: 5px;
       background: var(--surface);
       border: 1px solid var(--border);
       overflow: hidden;
@@ -1422,6 +1581,12 @@ export class MilaidyApp extends LitElement {
       border-top: 1px solid var(--border);
       padding: 18px;
       background: var(--surface);
+      animation: pc-slide-in var(--duration-normal) ease;
+    }
+
+    @keyframes pc-slide-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
     /* Individual field */
@@ -1513,6 +1678,8 @@ export class MilaidyApp extends LitElement {
       font-size: 11px;
       color: var(--muted);
       white-space: nowrap;
+      min-width: 48px;
+      text-align: center;
       transition: background var(--duration-fast);
     }
 
@@ -1642,11 +1809,39 @@ export class MilaidyApp extends LitElement {
     this.initializeTheme();
     this.initializeApp();
     window.addEventListener("popstate", this.handlePopState);
+    window.addEventListener("keydown", this.handleGlobalKeydown);
+    document.addEventListener("milaidy:command-palette", this.handleExternalCommandPalette);
+    document.addEventListener("milaidy:tray-action", this.handleExternalTrayAction);
+    document.addEventListener("milaidy:share-target", this.handleExternalShareTarget);
+    document.addEventListener("milaidy:app-resume", this.handleAppResume);
+
+    // Acknowledge WIP methods pending template integration.
+    // Remove entries below as each gets wired into render templates.
+    void [
+      this.handleSaveSkillsMarketplaceApiKey,
+      this.uninstallMarketplaceSkill,
+      this.reprioritizeGoal,
+      this.reprioritizeTodo,
+      this.toggleTodoUrgent,
+      this.searchMcpMarketplace,
+      this.addMcpFromMarketplace,
+      this.confirmMcpAdd,
+      this.addMcpManual,
+      this.removeMcpServer,
+      this.handleOpenExtensionsPage,
+      this._renderWorkbenchLegacy,
+    ];
   }
 
   disconnectedCallback(): void {
     super.disconnectedCallback();
     window.removeEventListener("popstate", this.handlePopState);
+    window.removeEventListener("keydown", this.handleGlobalKeydown);
+    document.removeEventListener("milaidy:command-palette", this.handleExternalCommandPalette);
+    document.removeEventListener("milaidy:tray-action", this.handleExternalTrayAction);
+    document.removeEventListener("milaidy:share-target", this.handleExternalShareTarget);
+    document.removeEventListener("milaidy:app-resume", this.handleAppResume);
+    void this.teardownNativeBindings();
     if (this.cloudPollInterval) clearInterval(this.cloudPollInterval);
     client.disconnectWs();
   }
@@ -1705,8 +1900,9 @@ export class MilaidyApp extends LitElement {
       return;
     }
 
-    // Restore persisted chat messages
-    this.loadChatMessages();
+    // Load conversations and workbench data
+    void this.loadConversations();
+    void this.loadWorkbench();
 
     // Connect WebSocket
     client.connectWs();
@@ -1732,6 +1928,14 @@ export class MilaidyApp extends LitElement {
     }
 
 
+    // Initialize native platform integrations (Electron shortcuts, tray, etc.)
+    void this.initializeNativeLayer();
+    this.consumePendingShareQueue();
+
+    // Pre-load marketplace state
+    void this.loadSkillsMarketplaceConfig();
+    void this.loadInstalledMarketplaceSkills();
+
     // Load cloud credit status and start polling
     this.pollCloudCredits();
     this.cloudPollInterval = window.setInterval(() => this.pollCloudCredits(), 60_000);
@@ -1742,9 +1946,8 @@ export class MilaidyApp extends LitElement {
       if (tab === "inventory") this.loadInventory();
       if (tab === "plugins") this.loadPlugins();
       if (tab === "skills") this.loadSkills();
-      if (tab === "config") { this.checkExtensionStatus(); this.loadWalletConfig(); this.loadCharacter(); }
+      if (tab === "config") { this.checkExtensionStatus(); this.loadWalletConfig(); this.loadCharacter(); this.loadUpdateStatus(); }
       if (tab === "logs") this.loadLogs();
-      if (tab === "workbench") this.loadWorkbench();
     }
   }
 
@@ -1757,9 +1960,26 @@ export class MilaidyApp extends LitElement {
     if (tab === "inventory") this.loadInventory();
     if (tab === "plugins") this.loadPlugins();
     if (tab === "skills") this.loadSkills();
-    if (tab === "config") { this.checkExtensionStatus(); this.loadWalletConfig(); this.loadCharacter(); }
+    if (tab === "config") { this.checkExtensionStatus(); this.loadWalletConfig(); this.loadCharacter(); this.loadUpdateStatus(); }
     if (tab === "logs") this.loadLogs();
-    if (tab === "workbench") this.loadWorkbench();
+  }
+
+  private async loadUpdateStatus(force = false): Promise<void> {
+    this.updateLoading = true;
+    try {
+      this.updateStatus = await client.getUpdateStatus(force);
+    } catch { /* ignore — server may not support this endpoint yet */ }
+    this.updateLoading = false;
+  }
+
+  private async handleChannelChange(channel: ReleaseChannel): Promise<void> {
+    if (this.updateStatus?.channel === channel) return;
+    this.updateChannelSaving = true;
+    try {
+      await client.setUpdateChannel(channel);
+      await this.loadUpdateStatus(true);
+    } catch { /* ignore */ }
+    this.updateChannelSaving = false;
   }
 
   private async loadPlugins(): Promise<void> {
@@ -1997,7 +2217,7 @@ export class MilaidyApp extends LitElement {
           void this.handlePauseResume();
         }
         if (action.toLowerCase().includes("workbench")) {
-          this.setTab("workbench");
+          this.setTab("chat");
           void this.loadWorkbench();
         }
       }) as { remove: () => Promise<void> } | undefined;
@@ -2050,7 +2270,7 @@ export class MilaidyApp extends LitElement {
         this.setTab("chat");
         break;
       case "tray-open-workbench":
-        this.setTab("workbench");
+        this.setTab("chat");
         void this.loadWorkbench();
         break;
       case "tray-toggle-pause":
@@ -2238,7 +2458,7 @@ export class MilaidyApp extends LitElement {
         this.setTab("chat");
         break;
       case "open-workbench":
-        this.setTab("workbench");
+        this.setTab("chat");
         await this.loadWorkbench();
         break;
       case "open-inventory":
@@ -2302,7 +2522,7 @@ export class MilaidyApp extends LitElement {
       { id: "agent-stop", label: "Stop Agent", hint: "Lifecycle" },
       { id: "agent-restart", label: "Restart Agent", hint: "Lifecycle" },
       { id: "open-chat", label: "Open Chat", hint: "Navigation" },
-      { id: "open-workbench", label: "Open Workbench", hint: "Navigation" },
+      { id: "open-workbench", label: "Open Goals & Tasks", hint: "Navigation" },
       { id: "open-inventory", label: "Open Inventory", hint: "Navigation" },
       { id: "open-marketplace", label: "Open Apps & Plugins", hint: "Navigation" },
       { id: "open-plugins", label: "Open Plugins", hint: "Navigation" },
@@ -2340,9 +2560,14 @@ export class MilaidyApp extends LitElement {
   private async loadWorkbench(): Promise<void> {
     this.workbenchLoading = true;
     try {
-      this.workbench = await client.getWorkbenchOverview();
+      const result = await client.getWorkbenchOverview();
+      this.workbench = result;
+      this.workbenchGoalsAvailable = result.goalsAvailable ?? false;
+      this.workbenchTodosAvailable = result.todosAvailable ?? false;
     } catch {
       this.workbench = null;
+      this.workbenchGoalsAvailable = false;
+      this.workbenchTodosAvailable = false;
     } finally {
       this.workbenchLoading = false;
     }
@@ -2869,7 +3094,9 @@ export class MilaidyApp extends LitElement {
       this.onboardingRpcSelections = {};
       this.onboardingRpcKeys = {};
       this.chatMessages = [];
-      localStorage.removeItem(CHAT_STORAGE_KEY);
+      this.conversationMessages = [];
+      this.activeConversationId = null;
+      this.conversations = [];
       this.configRaw = {};
       this.configText = "";
       this.plugins = [];
@@ -2955,33 +3182,44 @@ export class MilaidyApp extends LitElement {
 
   // --- Chat ---
 
-  private handleChatSend(): void {
+  private async handleChatSend(): Promise<void> {
     const text = this.chatInput.trim();
     if (!text || this.chatSending) return;
 
-    this.chatMessages = [
-      ...this.chatMessages,
-      { role: "user", text, timestamp: Date.now() },
+    // Ensure we have an active conversation
+    if (!this.activeConversationId) {
+      await this.handleNewConversation();
+    }
+    const convId = this.activeConversationId;
+    if (!convId) return;
+
+    // Optimistically add the user message
+    this.conversationMessages = [
+      ...this.conversationMessages,
+      { id: `temp-${Date.now()}`, role: "user", text, timestamp: Date.now() },
     ];
     this.chatInput = "";
     this.chatSending = true;
-    this.saveChatMessages();
 
-    // Use REST endpoint — reliable and always reaches the server (WebSocket
-    // chat silently drops messages when the connection is not established).
-    client.sendChatRest(text).then(
-      (data) => {
-        this.chatMessages = [
-          ...this.chatMessages,
-          { role: "assistant", text: data.text, timestamp: Date.now() },
-        ];
-        this.chatSending = false;
-        this.saveChatMessages();
-      },
-      () => {
-        this.chatSending = false;
-      },
-    );
+    try {
+      const data = await client.sendConversationMessage(convId, text);
+      this.conversationMessages = [
+        ...this.conversationMessages,
+        { id: `temp-resp-${Date.now()}`, role: "assistant", text: data.text, timestamp: Date.now() },
+      ];
+
+      // Auto-title: if this is the first exchange, rename the conversation
+      const conv = this.conversations.find((c) => c.id === convId);
+      if (conv && conv.title === "New Chat" && text.length > 0) {
+        const title = text.length > 40 ? `${text.slice(0, 40)}...` : text;
+        await client.renameConversation(convId, title);
+        await this.loadConversations();
+      }
+    } catch {
+      // Error sending — keep the user message but don't add response
+    } finally {
+      this.chatSending = false;
+    }
 
     // Reset textarea height after clearing
     const textarea = this.shadowRoot?.querySelector<HTMLTextAreaElement>(".chat-input");
@@ -3004,36 +3242,73 @@ export class MilaidyApp extends LitElement {
   private handleChatKeydown(e: KeyboardEvent): void {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      this.handleChatSend();
+      void this.handleChatSend();
     }
   }
 
-  private saveChatMessages(): void {
+  private async handleChatClear(): Promise<void> {
+    if (this.activeConversationId) {
+      await client.deleteConversation(this.activeConversationId);
+      this.activeConversationId = null;
+      this.conversationMessages = [];
+      await this.loadConversations();
+    }
+  }
+
+  // --- Conversations ---
+
+  private async loadConversations(): Promise<void> {
     try {
-      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(this.chatMessages));
+      const { conversations } = await client.listConversations();
+      this.conversations = conversations;
     } catch {
-      // Storage full or unavailable — silently ignore
+      this.conversations = [];
     }
   }
 
-  private loadChatMessages(): void {
+  private async loadConversationMessages(convId: string): Promise<void> {
     try {
-      const raw = localStorage.getItem(CHAT_STORAGE_KEY);
-      if (raw) {
-        const parsed: ChatMessage[] = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          this.chatMessages = parsed;
-        }
-      }
+      const { messages } = await client.getConversationMessages(convId);
+      this.conversationMessages = messages;
     } catch {
-      // Corrupt data — start fresh
+      this.conversationMessages = [];
     }
   }
 
-  private handleChatClear(): void {
-    this.chatMessages = [];
-    localStorage.removeItem(CHAT_STORAGE_KEY);
+  private async handleNewConversation(): Promise<void> {
+    try {
+      const { conversation } = await client.createConversation();
+      this.conversations = [conversation, ...this.conversations];
+      this.activeConversationId = conversation.id;
+      this.conversationMessages = [];
+    } catch {
+      // ignore
+    }
   }
+
+  private async handleSelectConversation(e: CustomEvent<{ id: string }>): Promise<void> {
+    const { id } = e.detail;
+    if (id === this.activeConversationId) return;
+    this.activeConversationId = id;
+    await this.loadConversationMessages(id);
+  }
+
+  private async handleDeleteConversation(e: CustomEvent<{ id: string }>): Promise<void> {
+    const { id } = e.detail;
+    await client.deleteConversation(id);
+    if (this.activeConversationId === id) {
+      this.activeConversationId = null;
+      this.conversationMessages = [];
+    }
+    await this.loadConversations();
+  }
+
+  private async handleRenameConversation(e: CustomEvent<{ id: string; title: string }>): Promise<void> {
+    const { id, title } = e.detail;
+    await client.renameConversation(id, title);
+    await this.loadConversations();
+  }
+
 
   // --- Onboarding ---
 
@@ -3204,11 +3479,43 @@ export class MilaidyApp extends LitElement {
       return this.renderOnboarding();
     }
 
+    const isChat = this.tab === "chat";
+
+    if (isChat) {
+      return html`
+        <div class="app-shell chat-layout">
+          ${this.renderHeader()}
+          ${this.renderNav()}
+          <div class="content-row">
+            <conversations-sidebar
+              .conversations=${this.conversations}
+              .activeId=${this.activeConversationId}
+              @new-conversation=${this.handleNewConversation}
+              @select-conversation=${this.handleSelectConversation}
+              @delete-conversation=${this.handleDeleteConversation}
+              @rename-conversation=${this.handleRenameConversation}
+            ></conversations-sidebar>
+            <main class="chat-active">${this.renderChat()}</main>
+            <workbench-sidebar
+              .goals=${this.workbench?.goals ?? []}
+              .todos=${this.workbench?.todos ?? []}
+              .loading=${this.workbenchLoading}
+              .agentRunning=${(this.agentStatus?.state ?? "not_started") === "running"}
+              .goalsAvailable=${this.workbenchGoalsAvailable}
+              .todosAvailable=${this.workbenchTodosAvailable}
+              @refresh-workbench=${() => this.loadWorkbench()}
+            ></workbench-sidebar>
+          </div>
+        </div>
+        ${this.renderCommandPalette()}
+      `;
+    }
+
     return html`
       <div class="app-shell">
         ${this.renderHeader()}
         ${this.renderNav()}
-        <main class=${this.tab === "chat" ? "chat-active" : ""}>${this.renderView()}</main>
+        <main>${this.renderView()}</main>
       </div>
       ${this.renderCommandPalette()}
     `;
@@ -3462,46 +3769,107 @@ export class MilaidyApp extends LitElement {
     `;
   }
 
+  // ── App game launching ──────────────────────────────────────────────
+
+  private handleAppLaunched = (e: CustomEvent<{ name: string; displayName: string; needsRestart: boolean; viewer: { url: string; embedParams?: Record<string, string>; postMessageAuth?: boolean; sandbox?: string } | null }>) => {
+    const { name, displayName, viewer } = e.detail;
+    this.activeGameApp = name;
+    this.activeGameDisplayName = displayName;
+
+    if (viewer) {
+      // Build the viewer URL with embed params
+      const viewerUrl = new URL(viewer.url);
+      if (viewer.embedParams) {
+        for (const [k, v] of Object.entries(viewer.embedParams)) {
+          viewerUrl.searchParams.set(k, v);
+        }
+      }
+      this.activeGameViewerUrl = viewerUrl.toString();
+      this.activeGameSandbox = viewer.sandbox ?? "allow-scripts allow-same-origin allow-popups";
+      this.activeGamePostMessageAuth = viewer.postMessageAuth ?? false;
+    }
+
+    // Switch to game tab immediately — the game client (iframe) loads independently
+    // of whether the agent plugin is still restarting.
+    this.tab = "game" as Tab;
+    const base = (this as unknown as { _basePath?: string })._basePath ?? "";
+    history.pushState(null, "", pathForTab("game" as Tab, base));
+  };
+
+  private handleAppStopped = () => {
+    this.activeGameApp = "";
+    this.activeGameDisplayName = "";
+    this.activeGameViewerUrl = "";
+    this.tab = "apps" as Tab;
+    const base = (this as unknown as { _basePath?: string })._basePath ?? "";
+    history.pushState(null, "", pathForTab("apps" as Tab, base));
+  };
+
+  private renderGameView() {
+    if (!this.activeGameViewerUrl) {
+      return html`<div style="padding: 48px; text-align: center; color: var(--text-muted)">No game is running. Go to Apps to launch one.</div>`;
+    }
+    return html`
+      <game-view
+        .appName=${this.activeGameApp}
+        .displayName=${this.activeGameDisplayName}
+        .viewerUrl=${this.activeGameViewerUrl}
+        .sandbox=${this.activeGameSandbox}
+        .postMessageAuth=${this.activeGamePostMessageAuth}
+        @app-stopped=${this.handleAppStopped}
+      ></game-view>
+    `;
+  }
+
   private renderView() {
     switch (this.tab) {
       case "chat": return this.renderChat();
-      case "apps": return html`<apps-view></apps-view>`;
+      case "apps": return html`<apps-view @app-launched=${this.handleAppLaunched}></apps-view>`;
+      case "game": return this.renderGameView();
       case "inventory": return this.renderInventory();
       case "plugins": return this.renderPlugins();
       case "skills": return this.renderSkills();
       case "database": return this.renderDatabase();
       case "config": return this.renderConfig();
       case "logs": return this.renderLogs();
-      case "workbench": return this.renderWorkbench();
       default: return this.renderChat();
     }
   }
 
   private renderChat() {
-    const state = this.agentStatus?.state ?? "not_started";
+    const agentState = this.agentStatus?.state ?? "not_started";
 
-    if (state === "not_started" || state === "stopped") {
+    if (agentState === "not_started" || agentState === "stopped") {
       return html`
-        <h2>Chat</h2>
-        <div class="start-agent-box">
-          <p>Agent is not running. Start it to begin chatting.</p>
-          <button class="btn" @click=${this.handleStart}>Start Agent</button>
+        <div class="chat-container" style="padding:0 20px;">
+          <div class="chat-header-row">
+            <h2 style="margin:0;">Chat</h2>
+          </div>
+          <div class="start-agent-box">
+            <p>Agent is not running. Start it to begin chatting.</p>
+            <button class="btn" @click=${this.handleStart}>Start Agent</button>
+          </div>
         </div>
       `;
     }
 
+    const msgs = this.conversationMessages;
+    const convTitle = this.conversations.find(
+      (c) => c.id === this.activeConversationId,
+    )?.title ?? "Chat";
+
     return html`
-      <div class="chat-container">
+      <div class="chat-container" style="padding:0 20px;">
         <div class="chat-header-row">
-          <h2 style="margin:0;">Chat</h2>
-          ${this.chatMessages.length > 0
+          <h2 style="margin:0;">${convTitle}</h2>
+          ${msgs.length > 0
             ? html`<button class="clear-btn" @click=${this.handleChatClear}>Clear</button>`
             : ""}
         </div>
         <div class="chat-messages">
-          ${this.chatMessages.length === 0
+          ${msgs.length === 0
             ? html`<div class="empty-state">Send a message to start chatting.</div>`
-            : this.chatMessages.map(
+            : msgs.map(
                 (msg) => html`
                   <div class="chat-msg ${msg.role}">
                     <div class="role">${msg.role === "user" ? "You" : this.agentStatus?.agentName ?? "Agent"}</div>
@@ -3528,6 +3896,7 @@ export class MilaidyApp extends LitElement {
     `;
   }
 
+
   private renderPlugins() {
     const categories = ["all", "ai-provider", "connector", "feature"] as const;
     const categoryLabels: Record<string, string> = {
@@ -3541,16 +3910,24 @@ export class MilaidyApp extends LitElement {
     const nonDbPlugins = this.plugins.filter(p => p.category !== "database");
     const filtered = nonDbPlugins.filter((p) => {
       const matchesCategory = this.pluginFilter === "all" || p.category === this.pluginFilter;
+      const matchesStatus = this.pluginStatusFilter === "all"
+        || (this.pluginStatusFilter === "enabled" && p.enabled)
+        || (this.pluginStatusFilter === "disabled" && !p.enabled);
       const matchesSearch = !searchLower
         || p.name.toLowerCase().includes(searchLower)
         || (p.description ?? "").toLowerCase().includes(searchLower)
         || p.id.toLowerCase().includes(searchLower);
-      return matchesCategory && matchesSearch;
+      return matchesCategory && matchesStatus && matchesSearch;
     });
 
-    // Sort: enabled first, then alphabetical
+    // Sort: enabled-needs-config first, then enabled-configured, then disabled
     const sorted = [...filtered].sort((a, b) => {
       if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+      if (a.enabled && b.enabled) {
+        const aNeedsConfig = a.parameters?.some(p => p.required && !p.isSet) ?? false;
+        const bNeedsConfig = b.parameters?.some(p => p.required && !p.isSet) ?? false;
+        if (aNeedsConfig !== bNeedsConfig) return aNeedsConfig ? -1 : 1;
+      }
       return a.name.localeCompare(b.name);
     });
 
@@ -3572,27 +3949,57 @@ export class MilaidyApp extends LitElement {
         ` : ""}
       </div>
 
-      <input
-        class="plugin-search"
-        type="text"
-        placeholder="Search plugins by name, description, or ID..."
-        .value=${this.pluginSearch}
-        @input=${(e: Event) => { this.pluginSearch = (e.target as HTMLInputElement).value; }}
-      />
+      <div class="pc-search-wrap">
+        <input
+          class="plugin-search"
+          type="text"
+          placeholder="Search plugins by name, description, or ID..."
+          .value=${this.pluginSearch}
+          @input=${(e: Event) => { this.pluginSearch = (e.target as HTMLInputElement).value; }}
+        />
+        ${this.pluginSearch ? html`
+          <button class="pc-search-clear" @click=${() => { this.pluginSearch = ""; }}
+            title="Clear search">&times;</button>
+        ` : ""}
+      </div>
 
-      <div class="pc-filters">
-        ${categories.map(cat => html`
+      <div class="pc-toolbar">
+        <div class="pc-filters">
+          ${categories.map(cat => html`
+            <button
+              class="pc-filter-btn ${this.pluginFilter === cat ? "active" : ""}"
+              @click=${() => { this.pluginFilter = cat; }}
+            >${categoryLabels[cat]} (${cat === "all" ? nonDbPlugins.length : nonDbPlugins.filter(p => p.category === cat).length})</button>
+          `)}
+        </div>
+        <div class="pc-toolbar-actions">
+          <button class="pc-toolbar-btn" @click=${() => this.exportPluginConfig()}
+            title="Export all plugin configurations as JSON">Export</button>
+          <button class="pc-toolbar-btn" @click=${() => {
+            const input = this.shadowRoot?.querySelector(".pc-file-input") as HTMLInputElement;
+            input?.click();
+          }} title="Import plugin configurations from JSON">Import</button>
+          <input class="pc-file-input" type="file" accept=".json"
+            @change=${(e: Event) => this.importPluginConfig(e)} />
+        </div>
+      </div>
+
+      <div class="pc-filter-row">
+        <span class="pc-filter-label">Status:</span>
+        ${(["all", "enabled", "disabled"] as const).map(s => html`
           <button
-            class="pc-filter-btn ${this.pluginFilter === cat ? "active" : ""}"
-            @click=${() => { this.pluginFilter = cat; }}
-          >${categoryLabels[cat]} (${cat === "all" ? nonDbPlugins.length : nonDbPlugins.filter(p => p.category === cat).length})</button>
+            class="pc-filter-btn ${this.pluginStatusFilter === s ? "active" : ""}"
+            @click=${() => { this.pluginStatusFilter = s; }}
+          >${s === "all" ? "All" : s === "enabled" ? `Enabled (${enabledCount})` : `Disabled (${nonDbPlugins.length - enabledCount})`}</button>
         `)}
       </div>
 
-      ${sorted.length === 0
-        ? html`<div class="pc-empty">${this.pluginSearch ? "No plugins match your search." : "No plugins in this category."}</div>`
-        : html`<div class="pc-list">${sorted.map(p => this.renderPluginCard(p))}</div>`
-      }
+      <div class="plugins-scroll-container">
+        ${sorted.length === 0
+          ? html`<div class="pc-empty">${this.pluginSearch ? "No plugins match your search." : "No plugins in this category."}</div>`
+          : html`<div class="pc-list">${sorted.map(p => this.renderPluginCard(p))}</div>`
+        }
+      </div>
     `;
   }
 
@@ -3620,7 +4027,7 @@ export class MilaidyApp extends LitElement {
     const saveSuccess = this.pluginSaveSuccess.has(p.id);
 
     return html`
-      <div class="pc-card ${p.enabled ? "pc-enabled" : ""}" data-plugin-id=${p.id}>
+      <div class="pc-card ${p.enabled ? "pc-enabled" : ""} ${p.enabled && !allParamsSet && hasParams ? "pc-needs-config" : ""}" data-plugin-id=${p.id}>
         <div class="pc-header" @click=${hasParams ? toggleSettings : undefined}>
           <div class="pc-info">
             <div class="pc-title-row">
@@ -3629,6 +4036,18 @@ export class MilaidyApp extends LitElement {
               ${!allParamsSet && hasParams ? html`<span class="pc-badge pc-badge-warn">${setCount}/${totalCount}</span>` : ""}
             </div>
             <div class="pc-desc">${p.description || "No description available"}</div>
+            ${p.version || p.npmName ? html`
+              <div class="pc-meta">
+                ${p.version ? html`<span class="pc-version">v${p.version}</span>` : ""}
+                ${p.npmName ? html`<span class="pc-npm">${p.npmName}</span>` : ""}
+              </div>
+            ` : ""}
+            ${p.pluginDeps && p.pluginDeps.length > 0 ? html`
+              <div class="pc-deps">
+                <span class="pc-dep-label">depends on:</span>
+                ${p.pluginDeps.map(dep => html`<span class="pc-dep-tag">${dep}</span>`)}
+              </div>
+            ` : ""}
           </div>
           <div class="pc-controls" @click=${(e: Event) => e.stopPropagation()}>
             ${hasParams ? html`
@@ -3645,7 +4064,9 @@ export class MilaidyApp extends LitElement {
         </div>
 
         ${hasParams ? html`
-          <div class="pc-settings-bar" @click=${toggleSettings}>
+          <div class="pc-settings-bar" tabindex="0" role="button"
+            @click=${toggleSettings}
+            @keydown=${(e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSettings(); } }}>
             <span class="settings-chevron ${settingsOpen ? "open" : ""}">&#9654;</span>
             <span class="pc-dot ${allParamsSet ? "set" : "missing"}"></span>
             <span>Settings</span>
@@ -3658,11 +4079,20 @@ export class MilaidyApp extends LitElement {
             ${generalParams.map(param => this.renderPluginField(p, param))}
 
             ${advancedParams.length > 0 ? html`
-              <div class="pc-advanced-toggle" @click=${() => {
-                const next = new Set(this.pluginAdvancedOpen);
-                if (next.has(p.id)) next.delete(p.id); else next.add(p.id);
-                this.pluginAdvancedOpen = next;
-              }}>
+              <div class="pc-advanced-toggle" tabindex="0" role="button"
+                @click=${() => {
+                  const next = new Set(this.pluginAdvancedOpen);
+                  if (next.has(p.id)) next.delete(p.id); else next.add(p.id);
+                  this.pluginAdvancedOpen = next;
+                }}
+                @keydown=${(e: KeyboardEvent) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    const next = new Set(this.pluginAdvancedOpen);
+                    if (next.has(p.id)) next.delete(p.id); else next.add(p.id);
+                    this.pluginAdvancedOpen = next;
+                  }
+                }}>
                 <span class="settings-chevron ${advancedOpen ? "open" : ""}">&#9654;</span>
                 Advanced (${advancedParams.length})
               </div>
@@ -3714,7 +4144,9 @@ export class MilaidyApp extends LitElement {
           ? this.renderBooleanField(plugin, param)
           : fieldType === "password"
             ? this.renderPasswordField(plugin, param)
-            : this.renderTextField(plugin, param, fieldType)}
+            : param.options?.length
+              ? this.renderSelectField(plugin, param)
+              : this.renderTextField(plugin, param, fieldType)}
 
         ${param.description ? html`
           <div class="pc-field-help">
@@ -3763,6 +4195,24 @@ export class MilaidyApp extends LitElement {
     `;
   }
 
+  private renderSelectField(plugin: PluginInfo, param: PluginParamDef) {
+    const currentValue = param.isSet && !param.sensitive ? (param.currentValue ?? "") : "";
+    const effectiveValue = currentValue || (param.default ?? "");
+
+    return html`
+      <select
+        class="pc-input"
+        data-plugin-param="${plugin.id}:${param.key}"
+        data-field-type="select"
+      >
+        ${!param.required ? html`<option value="">— none —</option>` : ""}
+        ${(param.options ?? []).map(
+          (opt) => html`<option value="${opt}" ?selected=${opt === effectiveValue}>${opt}</option>`,
+        )}
+      </select>
+    `;
+  }
+
   private renderTextField(plugin: PluginInfo, param: PluginParamDef, fieldType: string) {
     const inputType = fieldType === "number" ? "number" : fieldType === "url" ? "url" : "text";
     const currentValue = param.isSet && !param.sensitive ? (param.currentValue ?? "") : "";
@@ -3804,7 +4254,7 @@ export class MilaidyApp extends LitElement {
       .join(" ");
   }
 
-  private autoFieldType(param: PluginParamDef): string {
+  private autoFieldType(param: PluginParamDef): "text" | "password" | "boolean" | "number" | "url" {
     if (param.type === "boolean") return "boolean";
     if (param.sensitive) return "password";
     const k = param.key.toUpperCase();
@@ -3831,6 +4281,304 @@ export class MilaidyApp extends LitElement {
       if (el.type === "checkbox") el.checked = false;
       else el.value = "";
     }
+  }
+
+  private exportPluginConfig(): void {
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      plugins: this.plugins
+        .filter(p => p.category !== "database")
+        .map(p => ({
+          id: p.id,
+          enabled: p.enabled,
+          config: Object.fromEntries(
+            p.parameters
+              .filter(param => param.isSet && !param.sensitive)
+              .map(param => [param.key, param.currentValue]),
+          ),
+        }))
+        .filter(p => p.enabled || Object.keys(p.config).length > 0),
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `milaidy-plugins-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    this.setActionNotice("Plugin configuration exported.", "success");
+  }
+
+  private async importPluginConfig(e: Event): Promise<void> {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text) as {
+        plugins?: Array<{
+          id: string;
+          enabled?: boolean;
+          config?: Record<string, string | null>;
+        }>;
+      };
+      if (!data.plugins || !Array.isArray(data.plugins)) {
+        throw new Error("Invalid format: expected { plugins: [...] }");
+      }
+
+      let applied = 0;
+      for (const entry of data.plugins) {
+        if (!entry.id) continue;
+        const updates: Record<string, unknown> = {};
+        if (entry.enabled !== undefined) updates.enabled = entry.enabled;
+        if (entry.config && Object.keys(entry.config).length > 0) {
+          updates.config = entry.config;
+        }
+        if (Object.keys(updates).length > 0) {
+          await client.updatePlugin(entry.id, updates);
+          applied++;
+        }
+      }
+
+      await this.loadPlugins();
+      this.setActionNotice(`Imported configuration for ${applied} plugin${applied !== 1 ? "s" : ""}.`, "success");
+    } catch (err) {
+      this.setActionNotice(
+        `Import failed: ${err instanceof Error ? err.message : "invalid file"}`,
+        "error",
+        4000,
+      );
+    } finally {
+      input.value = "";
+    }
+  }
+
+  // --- Plugin Store ---
+
+  async loadStore(): Promise<void> {
+    this.storeLoading = true;
+    this.storeError = null;
+    try {
+      const { plugins } = await client.getRegistryPlugins();
+      this.storePlugins = plugins;
+    } catch (err) {
+      this.storeError = `Failed to load plugin registry: ${err instanceof Error ? err.message : "network error"}`;
+    }
+    this.storeLoading = false;
+
+    // Also load skill catalog if not already loaded
+    if (this.catalogSkills.length === 0 && !this.catalogLoading) {
+      this.loadCatalog();
+    }
+  }
+
+  async handleStoreInstall(pluginName: string): Promise<void> {
+    const next = new Set(this.storeInstalling);
+    next.add(pluginName);
+    this.storeInstalling = next;
+    this.storeError = null;
+
+    try {
+      const result = await client.installRegistryPlugin(pluginName);
+      if (!result.ok) {
+        this.storeError = result.error ?? `Failed to install ${pluginName}`;
+      } else {
+        await this.loadStore();
+        this.loadPlugins();
+      }
+    } catch (err) {
+      this.storeError = `Install failed: ${err instanceof Error ? err.message : "network error"}`;
+    }
+
+    const done = new Set(this.storeInstalling);
+    done.delete(pluginName);
+    this.storeInstalling = done;
+  }
+
+  async handleStoreUninstall(pluginName: string): Promise<void> {
+    const confirmed = window.confirm(
+      `Uninstall ${pluginName}?\n\nThis will remove the plugin and restart the agent.`,
+    );
+    if (!confirmed) return;
+
+    const next = new Set(this.storeUninstalling);
+    next.add(pluginName);
+    this.storeUninstalling = next;
+    this.storeError = null;
+
+    try {
+      const result = await client.uninstallRegistryPlugin(pluginName);
+      if (!result.ok) {
+        this.storeError = result.error ?? `Failed to uninstall ${pluginName}`;
+      } else {
+        await this.loadStore();
+        this.loadPlugins();
+      }
+    } catch (err) {
+      this.storeError = `Uninstall failed: ${err instanceof Error ? err.message : "network error"}`;
+    }
+
+    const done = new Set(this.storeUninstalling);
+    done.delete(pluginName);
+    this.storeUninstalling = done;
+  }
+
+  async handleStoreRefresh(): Promise<void> {
+    this.storeLoading = true;
+    this.storeError = null;
+    try {
+      await client.refreshRegistry();
+      await this.loadStore();
+    } catch (err) {
+      this.storeError = `Refresh failed: ${err instanceof Error ? err.message : "network error"}`;
+      this.storeLoading = false;
+    }
+  }
+
+  // --- Skill Catalog ---
+
+  async loadCatalog(): Promise<void> {
+    this.catalogLoading = true;
+    this.catalogError = null;
+    try {
+      if (this.catalogSearch) {
+        const { results } = await client.searchSkillCatalog(this.catalogSearch, 50);
+        this.catalogSkills = results.map((r) => ({
+          slug: r.slug,
+          displayName: r.displayName,
+          summary: r.summary,
+          tags: (r.latestVersion ? { latest: r.latestVersion } : {}) as Record<string, string>,
+          stats: {
+            comments: 0,
+            downloads: r.downloads,
+            installsAllTime: r.installs,
+            installsCurrent: 0,
+            stars: r.stars,
+            versions: 0,
+          },
+          createdAt: 0,
+          updatedAt: 0,
+          latestVersion: r.latestVersion
+            ? { version: r.latestVersion, createdAt: 0, changelog: "" }
+            : null,
+        }));
+        this.catalogTotal = results.length;
+        this.catalogTotalPages = 1;
+        this.catalogPage = 1;
+      } else {
+        const data = await client.getSkillCatalog({
+          page: this.catalogPage,
+          perPage: 50,
+          sort: this.catalogSort,
+        });
+        this.catalogSkills = data.skills;
+        this.catalogTotal = data.total;
+        this.catalogPage = data.page;
+        this.catalogTotalPages = data.totalPages;
+      }
+    } catch (err) {
+      this.catalogError = `Failed to load skill catalog: ${err instanceof Error ? err.message : "network error"}`;
+    }
+    this.catalogLoading = false;
+  }
+
+  async handleCatalogRefresh(): Promise<void> {
+    this.catalogLoading = true;
+    this.catalogError = null;
+    try {
+      await client.refreshSkillCatalog();
+      await this.loadCatalog();
+    } catch (err) {
+      this.catalogError = `Refresh failed: ${err instanceof Error ? err.message : "network error"}`;
+      this.catalogLoading = false;
+    }
+  }
+
+  handleCatalogSearch(): void {
+    this.catalogPage = 1;
+    this.loadCatalog();
+  }
+
+  handleCatalogPageChange(page: number): void {
+    this.catalogPage = page;
+    this.loadCatalog();
+  }
+
+  handleCatalogSortChange(sort: "downloads" | "stars" | "updated" | "name"): void {
+    this.catalogSort = sort;
+    this.catalogPage = 1;
+    this.loadCatalog();
+  }
+
+  async handleCatalogInstall(slug: string): Promise<void> {
+    const next = new Set(this.catalogInstalling);
+    next.add(slug);
+    this.catalogInstalling = next;
+    this.catalogError = null;
+
+    try {
+      const result = await client.installCatalogSkill(slug);
+      if (!result.ok) {
+        this.catalogError = result.message ?? `Failed to install ${slug}`;
+      } else {
+        this.catalogSkills = this.catalogSkills.map((s) =>
+          s.slug === slug ? { ...s, installed: true } : s,
+        );
+        if (this.catalogDetailSkill?.slug === slug) {
+          this.catalogDetailSkill = { ...this.catalogDetailSkill, installed: true };
+        }
+        this.loadSkills();
+      }
+    } catch (err) {
+      this.catalogError = `Install failed: ${err instanceof Error ? err.message : "network error"}`;
+    }
+
+    const done = new Set(this.catalogInstalling);
+    done.delete(slug);
+    this.catalogInstalling = done;
+  }
+
+  async handleCatalogUninstall(slug: string): Promise<void> {
+    const confirmed = window.confirm(
+      `Uninstall skill "${slug}"?\n\nThis will remove the skill from the agent.`,
+    );
+    if (!confirmed) return;
+
+    const next = new Set(this.catalogUninstalling);
+    next.add(slug);
+    this.catalogUninstalling = next;
+    this.catalogError = null;
+
+    try {
+      const result = await client.uninstallCatalogSkill(slug);
+      if (!result.ok) {
+        this.catalogError = result.message ?? `Failed to uninstall ${slug}`;
+      } else {
+        this.catalogSkills = this.catalogSkills.map((s) =>
+          s.slug === slug ? { ...s, installed: false } : s,
+        );
+        if (this.catalogDetailSkill?.slug === slug) {
+          this.catalogDetailSkill = { ...this.catalogDetailSkill, installed: false };
+        }
+        this.loadSkills();
+      }
+    } catch (err) {
+      this.catalogError = `Uninstall failed: ${err instanceof Error ? err.message : "network error"}`;
+    }
+
+    const done = new Set(this.catalogUninstalling);
+    done.delete(slug);
+    this.catalogUninstalling = done;
+  }
+
+  categorizeStorePlugin(name: string): string {
+    const aiProviders = ["openai", "anthropic", "groq", "xai", "ollama", "openrouter", "google", "deepseek", "mistral", "together", "cohere", "perplexity", "qwen", "minimax"];
+    const connectors = ["discord", "telegram", "slack", "whatsapp", "signal", "imessage", "bluebubbles", "msteams", "mattermost", "google-chat", "farcaster", "lens", "twitter", "nostr", "matrix", "feishu"];
+    const lower = name.toLowerCase();
+    if (aiProviders.some(p => lower.includes(p))) return "ai-provider";
+    if (connectors.some(c => lower.includes(c))) return "connector";
+    return "feature";
   }
 
   private async handlePluginConfigSave(pluginId: string): Promise<void> {
@@ -3864,6 +4612,7 @@ export class MilaidyApp extends LitElement {
     try {
       await client.updatePlugin(pluginId, { config });
       await this.loadPlugins();
+      this.setActionNotice("Plugin settings saved.", "success");
 
       const success = new Set(this.pluginSaveSuccess);
       success.add(pluginId);
@@ -3876,6 +4625,11 @@ export class MilaidyApp extends LitElement {
       }, 2000);
     } catch (err) {
       console.error("Failed to save plugin config:", err);
+      this.setActionNotice(
+        `Save failed: ${err instanceof Error ? err.message : "unknown error"}`,
+        "error",
+        3800,
+      );
     } finally {
       const done = new Set(this.pluginSaving);
       done.delete(pluginId);
@@ -3888,8 +4642,12 @@ export class MilaidyApp extends LitElement {
 
     // Block enabling if there are validation errors (missing required params)
     if (enabled && plugin?.validationErrors && plugin.validationErrors.length > 0) {
-      // Revert the checkbox
+      // Revert the checkbox and open settings so user can configure
       this.requestUpdate();
+      const next = new Set(this.pluginSettingsOpen);
+      next.add(pluginId);
+      this.pluginSettingsOpen = next;
+      this.setActionNotice("Configure required settings before enabling.", "error", 3000);
       return;
     }
 
@@ -3968,22 +4726,76 @@ export class MilaidyApp extends LitElement {
     }
   }
 
+  private renderSkillCard(s: import("./api-client").SkillInfo) {
+    const isQuarantined = s.scanStatus === "warning" || s.scanStatus === "critical";
+    const isBlocked = s.scanStatus === "blocked";
+    const isReviewing = this.skillReviewId === s.id;
+
+    return html`
+      <div class="plugin-item" style="flex-direction:column;align-items:stretch;" data-skill-id=${s.id}>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="flex:1;min-width:0;">
+            <div class="plugin-name">${s.name}
+              ${isQuarantined ? html`<span style="font-size:10px;padding:1px 6px;border-radius:3px;margin-left:6px;background:${s.scanStatus === "critical" ? "var(--danger,#e74c3c)" : "var(--warning,#f39c12)"};color:#fff;">QUARANTINED</span>` : ""}
+              ${isBlocked ? html`<span style="font-size:10px;padding:1px 6px;border-radius:3px;margin-left:6px;background:var(--danger,#e74c3c);color:#fff;">BLOCKED</span>` : ""}
+            </div>
+            <div class="plugin-desc">${s.description || "No description"}</div>
+          </div>
+          <button class="btn" style="font-size:11px;padding:2px 8px;" @click=${() => this.handleOpenSkill(s.id)}>Edit</button>
+          <button class="btn" style="font-size:11px;padding:2px 8px;color:var(--danger,#e74c3c);" @click=${() => this.handleDeleteSkill(s.id, s.name)}>Del</button>
+          ${isQuarantined && !isReviewing ? html`
+            <button class="btn" style="font-size:11px;padding:2px 8px;color:var(--warning,#f39c12);" @click=${() => this.handleReviewSkill(s.id)}>Review Findings</button>
+          ` : isBlocked ? html`
+            <span class="plugin-status" style="color:var(--danger,#e74c3c);">blocked</span>
+          ` : html`
+            <span class="plugin-status ${s.enabled ? "enabled" : ""}">${s.enabled ? "active" : "inactive"}</span>
+            <label class="switch"><input type="checkbox" .checked=${s.enabled} ?disabled=${this.skillToggleAction === s.id || isQuarantined}
+              @change=${(e: Event) => this.handleSkillToggle(s.id, (e.target as HTMLInputElement).checked)} /><span class="slider"></span></label>
+          `}
+        </div>
+
+        ${isReviewing && this.skillReviewReport ? html`
+          <div style="margin-top:8px;padding:8px;border:1px solid var(--border);font-size:12px;">
+            <div style="margin-bottom:6px;">
+              <strong>${this.skillReviewReport.summary.critical}</strong> critical, <strong>${this.skillReviewReport.summary.warn}</strong> warnings
+            </div>
+            ${this.skillReviewReport.findings.length > 0 ? html`
+              <div style="font-family:var(--mono);font-size:11px;max-height:160px;overflow-y:auto;margin-bottom:8px;">
+                ${this.skillReviewReport.findings.map((f) => html`
+                  <div style="margin-bottom:4px;">
+                    <span style="color:${f.severity === "critical" ? "var(--danger,#e74c3c)" : "var(--warning,#f39c12)"};">[${f.severity.toUpperCase()}]</span>
+                    ${f.message} <span style="color:var(--muted);">${f.file}:${f.line}</span>
+                  </div>`)}
+              </div>` : ""}
+            <div style="display:flex;gap:6px;">
+              <button class="btn" @click=${() => this.handleAcknowledgeSkill(s.id)}>Acknowledge & Enable</button>
+              <button class="btn" @click=${() => { this.skillReviewId = ""; this.skillReviewReport = null; }}>Dismiss</button>
+            </div>
+          </div>
+        ` : isReviewing && this.skillReviewLoading ? html`
+          <div style="margin-top:8px;font-size:12px;color:var(--muted);">Loading scan report...</div>
+        ` : ""}
+      </div>`;
+  }
+
   private renderSkills() {
+    const quarantinedCount = this.skills.filter((s) => s.scanStatus === "warning" || s.scanStatus === "critical").length;
+
     return html`
       <h2>Skills</h2>
-      <p class="subtitle">Manage skills — create, install, review security, and toggle.</p>
+      <p class="subtitle">
+        ${this.skills.length} skills loaded${quarantinedCount > 0 ? html` · <span style="color:var(--warning,#f39c12);font-weight:bold;">${quarantinedCount} quarantined</span>` : ""}.
+      </p>
 
-      <!-- Sub-tab navigation -->
       <div style="display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:8px;">
-        ${(["my", "browse", "review"] as const).map((tab) => html`
+        ${(["my", "browse"] as const).map((tab) => html`
           <button class="btn" style="font-size:12px;padding:4px 12px;${this.skillsSubTab === tab ? "font-weight:bold;border-bottom:2px solid var(--accent);" : ""}"
             @click=${() => { this.skillsSubTab = tab; }}
-          >${tab === "my" ? "My Skills" : tab === "browse" ? "Browse & Install" : "Security Review"}</button>
+          >${tab === "my" ? "My Skills" : "Browse & Install"}</button>
         `)}
       </div>
 
       ${this.skillsSubTab === "my" ? html`
-        <!-- Create skill -->
         <section style="border:1px solid var(--border);padding:12px;margin-bottom:14px;">
           <div style="font-weight:bold;font-size:13px;margin-bottom:8px;">Create New Skill</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -3996,30 +4808,19 @@ export class MilaidyApp extends LitElement {
           </div>
         </section>
 
-        <!-- Loaded skills -->
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <p class="subtitle">${this.skills.length > 0 ? `${this.skills.length} loaded skills.` : "No skills loaded."}</p>
+          <div></div>
           <button class="btn" @click=${this.refreshSkills} style="font-size:12px;padding:4px 12px;">Refresh</button>
         </div>
-        ${this.skills.length === 0
-          ? html`<div class="empty-state">No skills loaded yet. Create one above or install from Browse tab.</div>`
-          : html`<div class="plugin-list">${this.skills.map((s) => html`
-              <div class="plugin-item" data-skill-id=${s.id}>
-                <div style="flex:1;min-width:0;">
-                  <div class="plugin-name">${s.name}</div>
-                  <div class="plugin-desc">${s.description || "No description"}</div>
-                </div>
-                <div style="display:flex;align-items:center;gap:6px;">
-                  <button class="btn" style="font-size:11px;padding:2px 8px;" @click=${() => this.handleOpenSkill(s.id)}>Edit</button>
-                  <button class="btn" style="font-size:11px;padding:2px 8px;color:var(--danger,#e74c3c);" @click=${() => this.handleDeleteSkill(s.id, s.name)}>Del</button>
-                  <span class="plugin-status ${s.enabled ? "enabled" : ""}">${s.enabled ? "active" : "inactive"}</span>
-                  <label class="switch"><input type="checkbox" .checked=${s.enabled} ?disabled=${this.skillToggleAction === s.id}
-                    @change=${(e: Event) => this.handleSkillToggle(s.id, (e.target as HTMLInputElement).checked)} /><span class="slider"></span></label>
-                </div>
-              </div>`)}</div>`}
 
-      ` : this.skillsSubTab === "browse" ? html`
-        <!-- Browse & Install (marketplace search) -->
+        ${this.skills.length === 0
+          ? html`<div class="empty-state">No skills loaded. Create one above or install from Browse tab.</div>`
+          : html`<div class="plugin-list">
+              ${this.skills.filter((s) => s.scanStatus === "warning" || s.scanStatus === "critical" || s.scanStatus === "blocked").map((s) => this.renderSkillCard(s))}
+              ${this.skills.filter((s) => !s.scanStatus || s.scanStatus === "clean").map((s) => this.renderSkillCard(s))}
+            </div>`}
+
+      ` : html`
         <p class="subtitle">Search and install skills from the marketplace or GitHub.</p>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">
           <input class="plugin-search" style="flex:1;min-width:220px;" placeholder="Search skills..." .value=${this.skillsMarketplaceQuery}
@@ -4052,50 +4853,6 @@ export class MilaidyApp extends LitElement {
                     ${this.skillsMarketplaceAction === `install:${item.id}` ? "Installing..." : "Install"}</button>
                 </div>
               </div>`)}</div>`}
-
-      ` : html`
-        <!-- Security Review -->
-        <p class="subtitle">Review security scan findings for installed skills.</p>
-
-        ${this.skillReviewId && this.skillReviewReport ? html`
-          <section style="border:1px solid var(--border);padding:12px;margin-bottom:14px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-              <div style="font-weight:bold;font-size:13px;">Scan: ${this.skillReviewId}</div>
-              <button class="btn" style="font-size:11px;padding:2px 8px;" @click=${() => { this.skillReviewId = ""; this.skillReviewReport = null; }}>Close</button>
-            </div>
-            <div style="font-size:12px;margin-bottom:8px;">
-              Status: <span style="font-weight:bold;color:${this.skillReviewReport.status === "clean" ? "var(--success,#27ae60)" : this.skillReviewReport.status === "warning" ? "var(--warning,#f39c12)" : "var(--danger,#e74c3c)"};">${this.skillReviewReport.status.toUpperCase()}</span>
-              — ${this.skillReviewReport.summary.critical} critical, ${this.skillReviewReport.summary.warn} warnings
-            </div>
-            ${this.skillReviewReport.findings.length > 0 ? html`
-              <div style="font-family:var(--mono);font-size:11px;max-height:200px;overflow-y:auto;border:1px solid var(--border);padding:8px;margin-bottom:8px;">
-                ${this.skillReviewReport.findings.map((f) => html`
-                  <div style="margin-bottom:6px;border-bottom:1px solid var(--border);padding-bottom:4px;">
-                    <span style="color:${f.severity === "critical" ? "var(--danger,#e74c3c)" : "var(--warning,#f39c12)"};">[${f.severity.toUpperCase()}]</span>
-                    ${f.message} <span style="color:var(--muted);">${f.file}:${f.line}</span>
-                    ${f.evidence ? html`<br/><code style="font-size:10px;color:var(--muted);">${f.evidence}</code>` : ""}
-                  </div>`)}
-              </div>` : ""}
-            ${this.skillReviewReport.status !== "blocked" && this.skillReviewReport.status !== "clean" ? html`
-              <button class="btn" @click=${() => this.handleAcknowledgeSkill(this.skillReviewId)}>Acknowledge & Enable</button>` : ""}
-          </section>
-        ` : this.skillReviewLoading ? html`<div style="font-size:12px;color:var(--muted);padding:12px;">Loading scan report...</div>` : ""}
-
-        <div class="plugin-list">
-          ${this.skills.filter((s) => !s.enabled).map((s) => html`
-            <div class="plugin-item" data-skill-id=${s.id}>
-              <div style="flex:1;min-width:0;">
-                <div class="plugin-name">${s.name}</div>
-                <div class="plugin-desc">${s.description || "No description"}</div>
-              </div>
-              <div style="display:flex;align-items:center;gap:6px;">
-                <span class="plugin-status">inactive</span>
-                <button class="btn" style="font-size:11px;padding:2px 8px;" @click=${() => this.handleReviewSkill(s.id)}>Review</button>
-              </div>
-            </div>`)}
-          ${this.skills.filter((s) => !s.enabled).length === 0 ? html`
-            <div class="empty-state">No disabled skills to review. All skills are active.</div>` : ""}
-        </div>
       `}
     `;
   }
@@ -4658,10 +5415,102 @@ export class MilaidyApp extends LitElement {
               @click=${() => this.setTheme(t.id)}
             >
               <div style="font-size:13px;font-weight:bold;color:var(--text);">${t.label}</div>
-              <div style="font-size:11px;color:var(--muted);margin-top:2px;">${t.hint}</div>
             </button>
           `)}
         </div>
+      </div>
+
+      <!-- Software Updates -->
+      <div style="margin-top:24px;padding:16px;border:1px solid var(--border);background:var(--card);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div>
+            <div style="font-weight:bold;font-size:14px;">Software Updates</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px;">
+              ${this.updateStatus
+                ? html`Version ${this.updateStatus.currentVersion}`
+                : html`Loading...`}
+            </div>
+          </div>
+          <button
+            class="btn"
+            style="white-space:nowrap;margin-top:0;font-size:12px;padding:6px 14px;"
+            ?disabled=${this.updateLoading}
+            @click=${() => this.loadUpdateStatus(true)}
+          >${this.updateLoading ? "Checking..." : "Check Now"}</button>
+        </div>
+
+        ${this.updateStatus ? html`
+          <!-- Channel selector -->
+          <div style="margin-bottom:16px;">
+            <div style="font-weight:600;font-size:12px;margin-bottom:6px;">Release Channel</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+              ${(["stable", "beta", "nightly"] as const).map(ch => {
+                const active = this.updateStatus!.channel === ch;
+                const desc = ch === "stable" ? "Recommended" : ch === "beta" ? "Preview" : "Bleeding edge";
+                return html`
+                  <button
+                    class="theme-btn ${active ? "active" : ""}"
+                    style="text-align:left;padding:10px;"
+                    ?disabled=${this.updateChannelSaving}
+                    @click=${() => this.handleChannelChange(ch)}
+                  >
+                    <div style="font-size:13px;font-weight:bold;color:var(--text);">${ch}</div>
+                    <div style="font-size:11px;color:var(--muted);margin-top:2px;">${desc}</div>
+                  </button>
+                `;
+              })}
+            </div>
+          </div>
+
+          <!-- Available versions -->
+          <div style="font-weight:600;font-size:12px;margin-bottom:6px;">Available Versions</div>
+          <div style="display:flex;flex-direction:column;gap:4px;font-size:12px;">
+            ${(["stable", "beta", "nightly"] as const).map(ch => {
+              const ver = this.updateStatus!.channels[ch];
+              const isCurrent = ch === this.updateStatus!.channel;
+              return html`
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;background:${isCurrent ? "var(--bg-hover, rgba(255,255,255,0.05))" : "transparent"};border-radius:4px;">
+                  <span>
+                    <span style="font-weight:${isCurrent ? "bold" : "normal"};">${ch}</span>
+                    ${isCurrent ? html`<span style="color:var(--accent);font-size:11px;margin-left:6px;">current</span>` : ""}
+                  </span>
+                  <span style="font-family:var(--mono, monospace);color:${ver ? "var(--text)" : "var(--muted)"};">
+                    ${ver ?? "not published"}
+                  </span>
+                </div>
+              `;
+            })}
+          </div>
+
+          <!-- Update available banner -->
+          ${this.updateStatus.updateAvailable && this.updateStatus.latestVersion ? html`
+            <div style="margin-top:12px;padding:10px 12px;border:1px solid var(--accent);background:rgba(255,255,255,0.03);border-radius:4px;display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="font-size:13px;font-weight:bold;color:var(--accent);">Update available</div>
+                <div style="font-size:12px;color:var(--muted);">
+                  ${this.updateStatus.currentVersion} &rarr; ${this.updateStatus.latestVersion}
+                </div>
+              </div>
+              <div style="font-size:11px;color:var(--muted);text-align:right;">
+                Run <code style="background:var(--bg-hover, rgba(255,255,255,0.05));padding:2px 6px;border-radius:3px;">milaidy update</code>
+              </div>
+            </div>
+          ` : ""}
+
+          ${this.updateStatus.error ? html`
+            <div style="margin-top:8px;font-size:11px;color:var(--danger, #e74c3c);">${this.updateStatus.error}</div>
+          ` : ""}
+
+          ${this.updateStatus.lastCheckAt ? html`
+            <div style="margin-top:8px;font-size:11px;color:var(--muted);">
+              Last checked: ${new Date(this.updateStatus.lastCheckAt).toLocaleString()}
+            </div>
+          ` : ""}
+        ` : html`
+          <div style="text-align:center;padding:12px;color:var(--muted);font-size:12px;">
+            ${this.updateLoading ? "Checking for updates..." : "Unable to load update status."}
+          </div>
+        `}
       </div>
 
       <!-- Character Settings Section -->
@@ -5150,9 +5999,9 @@ export class MilaidyApp extends LitElement {
     }
   }
 
-  // --- Workbench ---
+  // --- Workbench (legacy full-page render, kept for reference) ---
 
-  private renderWorkbench() {
+  private _renderWorkbenchLegacy() {
     if (this.workbenchLoading && !this.workbench) {
       return html`<div class="empty-state">Loading workbench...</div>`;
     }
@@ -5435,7 +6284,6 @@ export class MilaidyApp extends LitElement {
             style="text-align:center;padding:14px 8px;"
           >
             <div class="label">${t.label}</div>
-            <div class="hint">${t.hint}</div>
           </div>
         `)}
       </div>
