@@ -361,7 +361,7 @@ export function OnboardingWizard() {
             <div className="onboarding-speech bg-card border border-border rounded-xl px-5 py-4 mx-auto mb-6 max-w-[360px] relative text-[15px] text-txt leading-relaxed">
               <h2 className="text-[28px] font-normal mb-1 text-txt-strong">LLM Provider</h2>
             </div>
-            <div className="flex flex-col gap-2 text-left max-w-[360px] mx-auto">
+            <div className="flex flex-col gap-2 text-left max-w-[360px] mx-auto max-h-[50vh] overflow-y-auto">
               {onboardingOptions?.providers.map((provider: ProviderOption) => (
                 <div
                   key={provider.id}
@@ -610,9 +610,9 @@ export function OnboardingWizard() {
   const canGoBack = onboardingStep !== "welcome";
 
   return (
-    <div className="max-w-[500px] mx-auto mt-10 text-center font-body">
+    <div className="max-w-[500px] mx-auto py-10 px-4 text-center font-body min-h-screen overflow-y-auto">
       {renderStep(onboardingStep)}
-      <div className="flex gap-2 mt-4 justify-center">
+      <div className="flex gap-2 mt-4 justify-center pb-8">
         {canGoBack && (
           <button
             className="px-6 py-2 border border-border bg-transparent text-txt text-sm cursor-pointer hover:bg-accent-subtle hover:text-accent mt-5"
