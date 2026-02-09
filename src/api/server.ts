@@ -874,6 +874,48 @@ function error(res: http.ServerResponse, message: string, status = 400): void {
 }
 
 // ---------------------------------------------------------------------------
+// Config redaction
+// ---------------------------------------------------------------------------
+
+const SENSITIVE_ENV_KEY_RE =
+  /PRIVATE_KEY|SECRET|PASSWORD|TOKEN|API_KEY|SEED_PHRASE/i;
+
+/**
+ * Return a shallow copy of the config with sensitive values in the `env`
+ * section replaced by "[REDACTED]". This prevents private keys, API keys,
+ * and other credentials from leaking through the HTTP API.
+ */
+function redactStringMap(
+  obj: Record<string, unknown>,
+): Record<string, unknown> {
+  const redacted: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value === "string" && SENSITIVE_ENV_KEY_RE.test(key)) {
+      redacted[key] = value.length > 0 ? "[REDACTED]" : "";
+    } else {
+      redacted[key] = value;
+    }
+  }
+  return redacted;
+}
+
+function redactConfigSecrets(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const safe = { ...config };
+  if (safe.env && typeof safe.env === "object") {
+    const envCopy = redactStringMap(safe.env as Record<string, unknown>);
+    // Also redact inside env.vars if present
+    const vars = (safe.env as Record<string, unknown>).vars;
+    if (vars && typeof vars === "object") {
+      envCopy.vars = redactStringMap(vars as Record<string, unknown>);
+    }
+    safe.env = envCopy;
+  }
+  return safe;
+}
+
+// ---------------------------------------------------------------------------
 // Onboarding helpers
 // ---------------------------------------------------------------------------
 
@@ -3287,7 +3329,7 @@ async function handleRequest(
 
   // ── GET /api/config ──────────────────────────────────────────────────────
   if (method === "GET" && pathname === "/api/config") {
-    json(res, state.config);
+    json(res, redactConfigSecrets(state.config));
     return;
   }
 
@@ -3301,7 +3343,7 @@ async function handleRequest(
     } catch {
       // In test environments the config path may not be writable — that's fine.
     }
-    json(res, state.config);
+    json(res, redactConfigSecrets(state.config));
     return;
   }
 
