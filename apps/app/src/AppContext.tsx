@@ -903,22 +903,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [agentStatus]);
 
   const handleRestart = useCallback(async () => {
+    // Optimistically show "restarting" immediately.
+    setAgentStatus({
+      ...(agentStatus ?? { agentName: "Milaidy", model: undefined, uptime: undefined, startedAt: undefined }),
+      state: "restarting",
+    });
+
+    // Fire the restart request.  The backend responds immediately and
+    // performs the actual restart asynchronously, so we poll /api/status
+    // until the state leaves "restarting".
     try {
-      setAgentStatus({
-        ...(agentStatus ?? { agentName: "Milaidy", model: undefined, uptime: undefined, startedAt: undefined }),
-        state: "restarting",
-      });
-      const s = await client.restartAgent();
-      setAgentStatus(s);
+      await client.restartAgent();
     } catch {
-      setTimeout(async () => {
-        try {
-          setAgentStatus(await client.getStatus());
-        } catch {
-          /* ignore */
-        }
-      }, 3000);
+      // Request may fail (e.g. 501 if no restart handler). If so, poll
+      // once to get the real state and bail.
+      try {
+        setAgentStatus(await client.getStatus());
+      } catch { /* ignore */ }
+      return;
     }
+
+    // Poll until restart finishes or we time out (2 minutes).
+    const deadline = Date.now() + 120_000;
+    const poll = async () => {
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const s = await client.getStatus();
+          setAgentStatus(s);
+          if (s.state !== "restarting") return;
+        } catch {
+          // Server may be briefly unreachable during restart — keep trying.
+        }
+      }
+      // Timed out — do one final check.
+      try {
+        setAgentStatus(await client.getStatus());
+      } catch { /* leave as-is */ }
+    };
+    void poll();
   }, [agentStatus]);
 
   const handleReset = useCallback(async () => {

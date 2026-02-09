@@ -13,8 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findPluginExport } from "../cli/plugins-cli.js";
 import type { MilaidyConfig } from "../config/config.js";
 import {
-  applyConnectorSecretsToEnv,
   applyCloudConfigToEnv,
+  applyConnectorSecretsToEnv,
   buildCharacterFromConfig,
   CUSTOM_PLUGINS_DIRNAME,
   collectPluginNames,
@@ -142,7 +142,9 @@ describe("collectPluginNames", () => {
   });
 
   it("does not add connector plugins for empty connector configs", () => {
-    const config = { connectors: { telegram: null } } as unknown as MilaidyConfig;
+    const config = {
+      connectors: { telegram: null },
+    } as unknown as MilaidyConfig;
     const names = collectPluginNames(config);
     expect(names.has("@elizaos/plugin-telegram")).toBe(false);
   });
@@ -316,7 +318,9 @@ describe("applyConnectorSecretsToEnv", () => {
   });
 
   it("skips empty or whitespace-only values", () => {
-    const config = { connectors: { discord: { token: "  " } } } as MilaidyConfig;
+    const config = {
+      connectors: { discord: { token: "  " } },
+    } as MilaidyConfig;
     applyConnectorSecretsToEnv(config);
     expect(process.env.DISCORD_BOT_TOKEN).toBeUndefined();
   });

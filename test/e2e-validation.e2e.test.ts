@@ -21,20 +21,20 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import dotenv from "dotenv";
 import {
   AgentRuntime,
+  ChannelType,
   createCharacter,
   createMessageMemory,
-  stringToUuid,
-  ChannelType,
   logger,
   type Plugin,
+  stringToUuid,
   type UUID,
 } from "@elizaos/core";
-import { startApiServer } from "../src/api/server.js";
+import dotenv from "dotenv";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { validateRuntimeContext } from "../src/api/plugin-validation.js";
+import { startApiServer } from "../src/api/server.js";
 import { ensureAgentWorkspace } from "../src/providers/workspace.js";
 
 // ---------------------------------------------------------------------------

@@ -351,7 +351,9 @@ describe("real-world config patterns", () => {
         gateway: { port: 18789, bind: "loopback" },
       },
       [configPath("connectors", "whatsapp.json")]: {
-        connectors: { whatsapp: { dmPolicy: "pairing", allowFrom: ["+49123"] } },
+        connectors: {
+          whatsapp: { dmPolicy: "pairing", allowFrom: ["+49123"] },
+        },
       },
       [configPath("agents", "defaults.json")]: {
         agents: { defaults: { sandbox: { mode: "all" } } },

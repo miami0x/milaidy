@@ -19,8 +19,8 @@ import type { MilaidyConfig } from "../config/types.milaidy.js";
 import { createSessionKeyProvider } from "../providers/session-bridge.js";
 import { createWorkspaceProvider } from "../providers/workspace-provider.js";
 import {
-  applyConnectorSecretsToEnv,
   applyCloudConfigToEnv,
+  applyConnectorSecretsToEnv,
   buildCharacterFromConfig,
   collectPluginNames,
   resolvePrimaryModel,

@@ -8,10 +8,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  AUTH_PROVIDER_PLUGINS,
-  CONNECTOR_PLUGINS,
-  applyPluginAutoEnable,
   type ApplyPluginAutoEnableParams,
+  AUTH_PROVIDER_PLUGINS,
+  applyPluginAutoEnable,
+  CONNECTOR_PLUGINS,
 } from "./plugin-auto-enable.js";
 
 // ---------------------------------------------------------------------------

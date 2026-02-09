@@ -1039,7 +1039,9 @@ function applyConnectorHints(
   return next;
 }
 
-function listHeartbeatTargetConnectors(connectors: ConnectorUiMetadata[]): string[] {
+function listHeartbeatTargetConnectors(
+  connectors: ConnectorUiMetadata[],
+): string[] {
   const seen = new Set<string>();
   const ordered: string[] = [];
   for (const id of CONNECTOR_IDS) {

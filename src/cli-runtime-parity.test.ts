@@ -14,8 +14,8 @@ import type { MilaidyConfig } from "./config/config.js";
 // Shared presets used by both CLI and API server
 import { SHARED_STYLE_RULES, STYLE_PRESETS } from "./onboarding-presets.js";
 import {
-  applyConnectorSecretsToEnv,
   applyCloudConfigToEnv,
+  applyConnectorSecretsToEnv,
   buildCharacterFromConfig,
   collectPluginNames,
   resolvePrimaryModel,
