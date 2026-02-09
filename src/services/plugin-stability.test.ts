@@ -906,7 +906,14 @@ describe("Version Skew Detection (issue #10)", () => {
     ];
 
     for (const name of affectedPlugins) {
-      expect(pkg.dependencies[name]).toBeDefined();
+      const ver = pkg.dependencies[name];
+      expect(ver).toBeDefined();
+      // Must be pinned to specific alpha version (not "next")
+      // The "next" tag causes version skew: plugins@alpha.4 vs core@alpha.10
+      // Results in "MAX_EMBEDDING_TOKENS not found" errors at runtime
+      // See docs/ELIZAOS_VERSIONING.md for details and update procedures
+      expect(ver).not.toBe("next");
+      expect(ver).toMatch(/^\d+\.\d+\.\d+-alpha\.\d+$/);
     }
   });
 

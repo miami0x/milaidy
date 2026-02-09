@@ -388,12 +388,35 @@ describe("Package.json version pinning (issue #10)", () => {
     for (const plugin of affectedPlugins) {
       const version = pkg.dependencies[plugin];
       expect(version).toBeDefined();
-      // Plugins may be at "next" since core is pinned to a compatible version
+      // Must be pinned to a specific version (not "next")
+      // Reason: "next" tag resolves to alpha.4 for plugins but alpha.10 for core,
+      // causing version skew errors like "Export named 'MAX_EMBEDDING_TOKENS' not found"
+      // See docs/ELIZAOS_VERSIONING.md for full explanation
+      expect(version).not.toBe("next");
+      // Should be pinned to latest stable alpha version
+      expect(version).toMatch(/^\d+\.\d+\.\d+-alpha\.\d+$/);
     }
   });
 
-  it("pinned versions satisfy core@alpha.3 compatibility", () => {
-    // The pinned version (alpha.3) should be <= the core version (alpha.3).
+  it("core is pinned to specific alpha version", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { resolve } = await import("node:path");
+    const pkgPath = resolve(import.meta.dirname, "../../package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
+      dependencies: Record<string, string>;
+    };
+
+    // Core should be pinned to a specific alpha version (not "next")
+    // Reason: Core releases (alpha.10) are ahead of plugin releases (alpha.4),
+    // so we pin both to ensure compatibility. See docs/ELIZAOS_VERSIONING.md
+    const coreVersion = pkg.dependencies["@elizaos/core"];
+    expect(coreVersion).toBeDefined();
+    expect(coreVersion).not.toBe("next");
+    expect(coreVersion).toMatch(/^\d+\.\d+\.\d+-alpha\.\d+$/);
+  });
+
+  it("pinned versions are compatible with each other", () => {
+    // The pinned plugin versions should be compatible with the pinned core version.
     // This means the plugins won't import symbols that don't exist in core.
     const pinnedVersion = "2.0.0-alpha.3";
     const coreVersion = "2.0.0-alpha.3";

@@ -54,6 +54,13 @@ function resolveRunner() {
   if (pnpm) {
     return { cmd: pnpm, kind: "pnpm" };
   }
+  // Why: Bun-only environments (containers, CI) may not have pnpm.
+  // Bun supports the same `install` / `run <script>` interface, so it
+  // works as a drop-in runner for the UI workspace.
+  const bun = which("bun");
+  if (bun) {
+    return { cmd: bun, kind: "bun" };
+  }
   return null;
 }
 
@@ -111,7 +118,7 @@ if (!action) {
 
 const runner = resolveRunner();
 if (!runner) {
-  process.stderr.write("Missing UI runner: install pnpm, then retry.\n");
+  process.stderr.write("Missing UI runner: install pnpm or bun, then retry.\n");
   process.exit(1);
 }
 
@@ -139,8 +146,10 @@ if (action === "install") {
       action === "build"
         ? { ...process.env, NODE_ENV: "production" }
         : process.env;
+    // Why: bun uses `--production` while pnpm uses `--prod` for the same thing.
+    const prodFlag = runner.kind === "bun" ? "--production" : "--prod";
     const installArgs =
-      action === "build" ? ["install", "--prod"] : ["install"];
+      action === "build" ? ["install", prodFlag] : ["install"];
     runSync(runner.cmd, installArgs, installEnv);
   }
   run(runner.cmd, ["run", script, ...rest]);
