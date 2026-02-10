@@ -71,13 +71,6 @@ export const THEMES: ReadonlyArray<{
 
 const VALID_THEMES = new Set<string>(THEMES.map((t) => t.id));
 
-function detectSystemTheme(): ThemeName {
-  try {
-    if (window.matchMedia?.("(prefers-color-scheme: light)").matches) return "milady";
-  } catch { /* ignore */ }
-  return "dark";
-}
-
 function loadTheme(): ThemeName {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
@@ -102,7 +95,6 @@ function applyTheme(name: ThemeName) {
 export type OnboardingStep =
   | "welcome"
   | "name"
-  | "avatar"
   | "style"
   | "theme"
   | "runMode"
@@ -110,21 +102,7 @@ export type OnboardingStep =
   | "modelSelection"
   | "cloudLogin"
   | "llmProvider"
-  | "inventorySetup"
-  | "connectors";
-
-/** Total number of built-in VRM character options */
-export const VRM_COUNT = 8;
-
-/** Get the URL for a built-in VRM by its 1-based index */
-export function getVrmUrl(index: number): string {
-  return `/vrms/${index}.vrm`;
-}
-
-/** Get the preview image URL for a built-in VRM */
-export function getVrmPreviewUrl(index: number): string {
-  return `/vrms/previews/milady-${index}.png`;
-}
+  | "inventorySetup";
 
 // ── Action notice ──────────────────────────────────────────────────────
 
@@ -293,21 +271,9 @@ export interface AppState {
   onboardingLargeModel: string;
   onboardingProvider: string;
   onboardingApiKey: string;
-  onboardingOpenRouterModel: string;
-  onboardingSubscriptionTab: "token" | "oauth";
-  onboardingTelegramToken: string;
-  onboardingDiscordToken: string;
-  onboardingWhatsAppSessionPath: string;
-  onboardingTwilioAccountSid: string;
-  onboardingTwilioAuthToken: string;
-  onboardingTwilioPhoneNumber: string;
-  onboardingBlooioApiKey: string;
-  onboardingBlooioPhoneNumber: string;
   onboardingSelectedChains: Set<string>;
   onboardingRpcSelections: Record<string, string>;
   onboardingRpcKeys: Record<string, string>;
-  onboardingAvatar: number; // 1-8 built-in, 0 for custom upload
-  onboardingRestarting: boolean;
 
   // Command palette
   commandPaletteOpen: boolean;
@@ -325,10 +291,6 @@ export interface AppState {
   mcpAddingResult: McpMarketplaceResult | null;
   mcpEnvInputs: Record<string, string>;
   mcpHeaderInputs: Record<string, string>;
-
-  // Avatar / Character VRM
-  selectedVrmIndex: number; // 1-8 for built-in, 0 for custom
-  customVrmUrl: string | null; // Object URL for user-uploaded VRM
 
   // Share ingest
   droppedFiles: string[];
@@ -608,36 +570,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [onboardingTheme, setOnboardingTheme] = useState<ThemeName>("milady");
   const [onboardingRunMode, setOnboardingRunMode] = useState<"local" | "cloud" | "">("");
   const [onboardingCloudProvider, setOnboardingCloudProvider] = useState("");
-  const [onboardingSmallModel, setOnboardingSmallModel] = useState("openai/gpt-5-mini");
-  const [onboardingLargeModel, setOnboardingLargeModel] = useState("anthropic/claude-sonnet-4.5");
+  const [onboardingSmallModel, setOnboardingSmallModel] = useState("claude-haiku");
+  const [onboardingLargeModel, setOnboardingLargeModel] = useState("claude-sonnet-4-5");
   const [onboardingProvider, setOnboardingProvider] = useState("");
   const [onboardingApiKey, setOnboardingApiKey] = useState("");
-  const [onboardingOpenRouterModel, setOnboardingOpenRouterModel] = useState("anthropic/claude-sonnet-4");
-  const [onboardingSubscriptionTab, setOnboardingSubscriptionTab] = useState<"token" | "oauth">("token");
-  const [onboardingTelegramToken, setOnboardingTelegramToken] = useState("");
-  const [onboardingDiscordToken, setOnboardingDiscordToken] = useState("");
-  const [onboardingWhatsAppSessionPath, setOnboardingWhatsAppSessionPath] = useState("");
-  const [onboardingTwilioAccountSid, setOnboardingTwilioAccountSid] = useState("");
-  const [onboardingTwilioAuthToken, setOnboardingTwilioAuthToken] = useState("");
-  const [onboardingTwilioPhoneNumber, setOnboardingTwilioPhoneNumber] = useState("");
-  const [onboardingBlooioApiKey, setOnboardingBlooioApiKey] = useState("");
-  const [onboardingBlooioPhoneNumber, setOnboardingBlooioPhoneNumber] = useState("");
   const [onboardingSelectedChains, setOnboardingSelectedChains] = useState<Set<string>>(new Set(["evm", "solana"]));
   const [onboardingRpcSelections, setOnboardingRpcSelections] = useState<Record<string, string>>({});
   const [onboardingRpcKeys, setOnboardingRpcKeys] = useState<Record<string, string>>({});
-  const [onboardingAvatar, setOnboardingAvatar] = useState(1);
-  const [onboardingRestarting, setOnboardingRestarting] = useState(false);
-
-  // --- Avatar ---
-  const AVATAR_STORAGE_KEY = "milaidy:selectedVrm";
-  const [selectedVrmIndex, setSelectedVrmIndex] = useState(() => {
-    try {
-      const stored = localStorage.getItem(AVATAR_STORAGE_KEY);
-      if (stored) { const n = Number(stored); if (n >= 0 && n <= VRM_COUNT) return n; }
-    } catch { /* ignore */ }
-    return 1;
-  });
-  const [customVrmUrl, setCustomVrmUrl] = useState<string | null>(null);
 
   // --- Command palette ---
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -675,9 +614,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const actionNoticeTimer = useRef<number | null>(null);
   const cloudPollInterval = useRef<number | null>(null);
   const cloudLoginPollTimer = useRef<number | null>(null);
-  /** Timestamp of the most recent successful cloud login (prevents background poll from downgrading connected state). */
-  const cloudLoginAt = useRef<number>(0);
-  const prevAgentStateRef = useRef<string | null>(null);
 
   // ── Action notice ──────────────────────────────────────────────────
 
@@ -794,7 +730,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const { messages } = await client.getConversationMessages(convId);
       setConversationMessages(messages);
-    } catch {
+    } catch (err) {
+      // If the conversation no longer exists (server restarted), clear it
+      const status = (err as { status?: number }).status;
+      if (status === 404) {
+        setActiveConversationId(null);
+        setConversations([]);
+      }
       setConversationMessages([]);
     }
   }, []);
@@ -907,18 +849,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const cloudStatus = await client.getCloudStatus().catch(() => null);
     if (!cloudStatus) return;
     setCloudEnabled(cloudStatus.enabled ?? false);
-
-    // Grace period: after a successful login, don't let the background poll
-    // downgrade connected→disconnected for 30 seconds (CLOUD_AUTH service may
-    // lag behind the config write).
-    const inGracePeriod = Date.now() - cloudLoginAt.current < 30_000;
-    if (inGracePeriod && !cloudStatus.connected) {
-      // Don't overwrite — the login just succeeded and the server hasn't
-      // caught up yet. Keep the optimistic connected state.
-    } else {
-      setCloudConnected(cloudStatus.connected);
-    }
-
+    setCloudConnected(cloudStatus.connected);
     setCloudUserId(cloudStatus.userId ?? null);
     if (cloudStatus.topUpUrl) setCloudTopUpUrl(cloudStatus.topUpUrl);
     if (cloudStatus.connected) {
@@ -971,6 +902,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...(agentStatus ?? { agentName: "Milaidy", model: undefined, uptime: undefined, startedAt: undefined }),
         state: "restarting",
       });
+      // Server restart clears in-memory conversations — reset client state
+      setActiveConversationId(null);
+      setConversationMessages([]);
+      setConversations([]);
       const s = await client.restartAgent();
       setAgentStatus(s);
     } catch {
@@ -1015,36 +950,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ── Chat ───────────────────────────────────────────────────────────
 
-  /** Request an agent greeting for a conversation and add it to messages. */
-  const fetchGreeting = useCallback(async (convId: string) => {
-    setChatSending(true);
-    try {
-      const data = await client.requestGreeting(convId);
-      if (data.text) {
-        setConversationMessages((prev: ConversationMessage[]) => [
-          ...prev,
-          { id: `greeting-${Date.now()}`, role: "assistant", text: data.text, timestamp: Date.now() },
-        ]);
-      }
-    } catch {
-      /* greeting failed silently — user can still chat */
-    } finally {
-      setChatSending(false);
-    }
-  }, []);
-
   const handleNewConversation = useCallback(async () => {
     try {
       const { conversation } = await client.createConversation();
       setConversations((prev) => [conversation, ...prev]);
       setActiveConversationId(conversation.id);
       setConversationMessages([]);
-      // Agent sends the first message
-      void fetchGreeting(conversation.id);
     } catch {
       /* ignore */
     }
-  }, [fetchGreeting]);
+  }, []);
 
   const handleChatSend = useCallback(async () => {
     const text = chatInput.trim();
@@ -1075,8 +990,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...prev,
         { id: `temp-resp-${Date.now()}`, role: "assistant", text: data.text, timestamp: Date.now() },
       ]);
-    } catch {
-      await loadConversationMessages(convId);
+    } catch (err) {
+      // If the conversation was lost (server restart), create a fresh one and retry
+      const status = (err as { status?: number }).status;
+      if (status === 404) {
+        try {
+          const { conversation } = await client.createConversation();
+          setConversations((prev) => [conversation, ...prev]);
+          setActiveConversationId(conversation.id);
+          convId = conversation.id;
+          const data = await client.sendConversationMessage(convId, text);
+          setConversationMessages([
+            { id: `temp-${Date.now()}`, role: "user", text, timestamp: Date.now() },
+            { id: `temp-resp-${Date.now()}`, role: "assistant", text: data.text, timestamp: Date.now() },
+          ]);
+        } catch {
+          // Give up — show whatever we have
+          setConversationMessages([
+            { id: `temp-${Date.now()}`, role: "user", text, timestamp: Date.now() },
+          ]);
+        }
+      } else {
+        await loadConversationMessages(convId);
+      }
     } finally {
       setChatSending(false);
     }
@@ -1153,49 +1089,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setPluginSettingsOpen((prev) => new Set([...prev, pluginId]));
       }
       try {
-        const result = await client.updatePlugin(pluginId, { enabled });
-        // Optimistically update the toggle in the UI
+        await client.updatePlugin(pluginId, { enabled });
         setPlugins((prev: PluginInfo[]) =>
           prev.map((p: PluginInfo) => (p.id === pluginId ? { ...p, enabled } : p)),
         );
-
-        if (result.restarting) {
-          setActionNotice(
-            `${enabled ? "Enabling" : "Disabling"} plugin — restarting agent...`,
-            "info",
-            10000,
-          );
-          // Wait for the agent to finish restarting, then refresh data
-          const maxWaitMs = 20000;
-          const pollIntervalMs = 1000;
-          const start = Date.now();
-          // Initial grace period for the restart to begin
-          await new Promise((r) => setTimeout(r, 2000));
-          while (Date.now() - start < maxWaitMs) {
-            try {
-              const status = await client.getStatus();
-              if (status.state === "running") {
-                setAgentStatus(status);
-                break;
-              }
-            } catch {
-              // Server may be down during restart — keep polling
-            }
-            await new Promise((r) => setTimeout(r, pollIntervalMs));
-          }
-          // Refresh plugin list and workbench from the newly restarted runtime
-          await loadPlugins();
-          await loadWorkbench();
-          setActionNotice(
-            `Plugin ${enabled ? "enabled" : "disabled"} successfully.`,
-            "success",
-          );
-        }
       } catch {
         /* ignore */
       }
     },
-    [plugins, setActionNotice, loadPlugins, loadWorkbench],
+    [plugins, setActionNotice],
   );
 
   const handlePluginConfigSave = useCallback(
@@ -1570,12 +1472,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setOnboardingStep("name");
         break;
       case "name":
-        setOnboardingStep("avatar");
-        break;
-      case "avatar":
-        // Save selected avatar to localStorage
-        try { localStorage.setItem(AVATAR_STORAGE_KEY, String(onboardingAvatar)); } catch { /* ignore */ }
-        setSelectedVrmIndex(onboardingAvatar);
         setOnboardingStep("style");
         break;
       case "style":
@@ -1605,15 +1501,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setOnboardingStep("cloudLogin");
         break;
       case "cloudLogin":
-        setOnboardingStep("connectors");
+        // Finish onboarding
+        await handleOnboardingFinish();
         break;
       case "llmProvider":
         setOnboardingStep("inventorySetup");
         break;
       case "inventorySetup":
-        setOnboardingStep("connectors");
-        break;
-      case "connectors":
         await handleOnboardingFinish();
         break;
     }
@@ -1624,11 +1518,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       case "name":
         setOnboardingStep("welcome");
         break;
-      case "avatar":
-        setOnboardingStep("name");
-        break;
       case "style":
-        setOnboardingStep("avatar");
+        setOnboardingStep("name");
         break;
       case "theme":
         setOnboardingStep("style");
@@ -1661,28 +1552,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       case "inventorySetup":
         setOnboardingStep("llmProvider");
         break;
-      case "connectors":
-        if (onboardingRunMode === "cloud") {
-          setOnboardingStep("cloudLogin");
-        } else {
-          setOnboardingStep("inventorySetup");
-        }
-        break;
     }
-  }, [onboardingStep, onboardingOptions, onboardingRunMode]);
+  }, [onboardingStep, onboardingOptions]);
 
   const handleOnboardingFinish = useCallback(async () => {
     if (!onboardingOptions) return;
-
-    // Find the selected style preset
-    const style = onboardingOptions.styles.find(
-      (s: StylePreset) => s.catchphrase === onboardingStyle,
-    );
-
-    const bio = style?.bio ?? ["An autonomous AI agent."];
+    const style = onboardingOptions.styles.find((s: StylePreset) => s.catchphrase === onboardingStyle);
     const systemPrompt = style?.system
       ? style.system.replace(/\{\{name\}\}/g, onboardingName)
-      : `You are ${onboardingName}, an autonomous AI agent powered by ElizaOS.`;
+      : `You are ${onboardingName}, an autonomous AI agent powered by ElizaOS. ${onboardingOptions.sharedStyleRules}`;
 
     const inventoryProviders: Array<{ chain: string; rpcProvider: string; rpcApiKey?: string }> = [];
     if (onboardingRunMode === "local") {
@@ -1698,48 +1576,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
         name: onboardingName,
         theme: onboardingTheme,
         runMode: (onboardingRunMode || "local") as "local" | "cloud",
-        bio,
+        bio: style?.bio ?? ["An autonomous AI agent."],
         systemPrompt,
         style: style?.style,
         adjectives: style?.adjectives,
         topics: style?.topics,
-        postExamples: style?.postExamples,
         messageExamples: style?.messageExamples,
         cloudProvider: onboardingRunMode === "cloud" ? onboardingCloudProvider : undefined,
         smallModel: onboardingRunMode === "cloud" ? onboardingSmallModel : undefined,
         largeModel: onboardingRunMode === "cloud" ? onboardingLargeModel : undefined,
         provider: onboardingRunMode === "local" ? onboardingProvider || undefined : undefined,
         providerApiKey: onboardingRunMode === "local" ? onboardingApiKey || undefined : undefined,
-        subscriptionProvider: onboardingProvider === "anthropic-subscription" || onboardingProvider === "openai-subscription"
-          ? onboardingProvider : undefined,
-        openrouterModel: onboardingRunMode === "local" && onboardingProvider === "openrouter" ? onboardingOpenRouterModel || undefined : undefined,
         inventoryProviders: inventoryProviders.length > 0 ? inventoryProviders : undefined,
-        connectors: (() => {
-          const c: Record<string, Record<string, string>> = {};
-          if (onboardingTelegramToken.trim()) {
-            c.telegram = { botToken: onboardingTelegramToken.trim() };
-          }
-          if (onboardingDiscordToken.trim()) {
-            c.discord = { token: onboardingDiscordToken.trim() };
-          }
-          if (onboardingWhatsAppSessionPath.trim()) {
-            c.whatsapp = { sessionPath: onboardingWhatsAppSessionPath.trim() };
-          }
-          if (onboardingTwilioAccountSid.trim() && onboardingTwilioAuthToken.trim()) {
-            c.twilio = {
-              accountSid: onboardingTwilioAccountSid.trim(),
-              authToken: onboardingTwilioAuthToken.trim(),
-              ...(onboardingTwilioPhoneNumber.trim() ? { phoneNumber: onboardingTwilioPhoneNumber.trim() } : {}),
-            };
-          }
-          if (onboardingBlooioApiKey.trim()) {
-            c.blooio = {
-              apiKey: onboardingBlooioApiKey.trim(),
-              ...(onboardingBlooioPhoneNumber.trim() ? { phoneNumber: onboardingBlooioPhoneNumber.trim() } : {}),
-            };
-          }
-          return Object.keys(c).length > 0 ? c : undefined;
-        })(),
       });
     } catch (err) {
       window.alert(`Setup failed: ${err instanceof Error ? err.message : "network error"}. Please try again.`);
@@ -1756,10 +1604,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     onboardingOptions, onboardingStyle, onboardingName, onboardingTheme,
     onboardingRunMode, onboardingCloudProvider, onboardingSmallModel,
     onboardingLargeModel, onboardingProvider, onboardingApiKey,
-    onboardingOpenRouterModel, onboardingSubscriptionTab, onboardingTelegramToken,
-    onboardingDiscordToken, onboardingWhatsAppSessionPath,
-    onboardingTwilioAccountSid, onboardingTwilioAuthToken, onboardingTwilioPhoneNumber,
-    onboardingBlooioApiKey, onboardingBlooioPhoneNumber,
     onboardingSelectedChains, onboardingRpcSelections, onboardingRpcKeys,
   ]);
 
@@ -1786,17 +1630,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const poll = await client.cloudLoginPoll(resp.sessionId);
           if (poll.status === "authenticated") {
             if (cloudLoginPollTimer.current) clearInterval(cloudLoginPollTimer.current);
-            cloudLoginAt.current = Date.now();
-            setCloudConnected(true);
             setCloudLoginBusy(false);
             setActionNotice("Logged in to Eliza Cloud successfully.", "success", 6000);
-            // Restart the 60-second background poll so it doesn't race with
-            // the delayed credit fetch below.
-            if (cloudPollInterval.current) clearInterval(cloudPollInterval.current);
-            cloudPollInterval.current = window.setInterval(() => pollCloudCredits(), 60_000);
-            // Delay credit fetch to give backend time to reflect the new
-            // auth state (config is saved but CLOUD_AUTH service may lag).
-            setTimeout(() => void pollCloudCredits(), 3000);
+            void pollCloudCredits();
           } else if (poll.status === "expired" || poll.status === "error") {
             if (cloudLoginPollTimer.current) clearInterval(cloudLoginPollTimer.current);
             setCloudLoginError(poll.error ?? "Session expired. Please try again.");
@@ -1950,23 +1786,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       onboardingLargeModel: setOnboardingLargeModel as (v: never) => void,
       onboardingProvider: setOnboardingProvider as (v: never) => void,
       onboardingApiKey: setOnboardingApiKey as (v: never) => void,
-      onboardingOpenRouterModel: setOnboardingOpenRouterModel as (v: never) => void,
-      onboardingSubscriptionTab: setOnboardingSubscriptionTab as (v: never) => void,
-      onboardingTelegramToken: setOnboardingTelegramToken as (v: never) => void,
-      onboardingDiscordToken: setOnboardingDiscordToken as (v: never) => void,
-      onboardingWhatsAppSessionPath: setOnboardingWhatsAppSessionPath as (v: never) => void,
-      onboardingTwilioAccountSid: setOnboardingTwilioAccountSid as (v: never) => void,
-      onboardingTwilioAuthToken: setOnboardingTwilioAuthToken as (v: never) => void,
-      onboardingTwilioPhoneNumber: setOnboardingTwilioPhoneNumber as (v: never) => void,
-      onboardingBlooioApiKey: setOnboardingBlooioApiKey as (v: never) => void,
-      onboardingBlooioPhoneNumber: setOnboardingBlooioPhoneNumber as (v: never) => void,
       onboardingSelectedChains: setOnboardingSelectedChains as (v: never) => void,
       onboardingRpcSelections: setOnboardingRpcSelections as (v: never) => void,
       onboardingRpcKeys: setOnboardingRpcKeys as (v: never) => void,
-      onboardingAvatar: setOnboardingAvatar as (v: never) => void,
-      onboardingRestarting: setOnboardingRestarting as (v: never) => void,
-      selectedVrmIndex: ((v: number) => { setSelectedVrmIndex(v); try { localStorage.setItem("milaidy:selectedVrm", String(v)); } catch { /* ignore */ } }) as unknown as (v: never) => void,
-      customVrmUrl: setCustomVrmUrl as (v: never) => void,
       commandQuery: setCommandQuery as (v: never) => void,
       commandActiveIndex: setCommandActiveIndex as (v: never) => void,
       storeSearch: setStoreSearch as (v: never) => void,
@@ -2058,8 +1880,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (authRequired) return;
 
-      // Load conversations — if none exist, create one and request a greeting
-      let greetConvId: string | null = null;
+      // Load conversations
       try {
         const { conversations: c } = await client.listConversations();
         setConversations(c);
@@ -2069,40 +1890,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           try {
             const { messages } = await client.getConversationMessages(latest.id);
             setConversationMessages(messages);
-            // If the latest conversation has no messages, queue a greeting
-            if (messages.length === 0) {
-              greetConvId = latest.id;
-            }
-          } catch {
-            /* ignore */
-          }
-        } else {
-          // First launch — create a conversation and greet
-          try {
-            const { conversation } = await client.createConversation();
-            setConversations([conversation]);
-            setActiveConversationId(conversation.id);
-            setConversationMessages([]);
-            greetConvId = conversation.id;
           } catch {
             /* ignore */
           }
         }
       } catch {
         /* ignore */
-      }
-
-      // If the agent is already running and we have a conversation needing a
-      // greeting, fire it now. Otherwise the agent-state-transition effect
-      // below will trigger it once the agent starts.
-      if (greetConvId) {
-        try {
-          const s = await client.getStatus();
-          if (s.state === "running") {
-            void fetchGreeting(greetConvId);
-          }
-          // If not running, the useEffect watching agentStatus will handle it
-        } catch { /* ignore */ }
       }
 
       void loadWorkbench();
@@ -2132,27 +1925,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
       pollCloudCredits();
       cloudPollInterval.current = window.setInterval(() => pollCloudCredits(), 60_000);
 
-      // Load tab from URL (tabFromPath handles legacy /config, /database, /logs redirects)
+      // Load tab from URL
       const urlTab = tabFromPath(window.location.pathname);
       if (urlTab) {
         setTabRaw(urlTab);
-        // Rewrite URL if we landed on a legacy path
-        const canonicalPath = pathForTab(urlTab);
-        if (window.location.pathname !== canonicalPath) {
-          window.history.replaceState(null, "", canonicalPath);
-        }
-        if (urlTab === "features" || urlTab === "connectors") void loadPlugins();
+        if (urlTab === "plugins") void loadPlugins();
         if (urlTab === "skills") void loadSkills();
-        if (urlTab === "character") void loadCharacter();
         if (urlTab === "config") {
           void checkExtensionStatus();
           void loadWalletConfig();
+          void loadCharacter();
           void loadUpdateStatus();
           void loadPlugins();
         }
-        if (urlTab === "admin") {
-          void loadLogs();
-        }
+        if (urlTab === "logs") void loadLogs();
         if (urlTab === "inventory") void loadInventory();
       }
     };
@@ -2174,23 +1960,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Reload workbench when agent transitions to "running" (e.g. after restart).
-  // Also send a greeting if the active conversation has no messages yet.
-  useEffect(() => {
-    const current = agentStatus?.state ?? null;
-    const prev = prevAgentStateRef.current;
-    prevAgentStateRef.current = current;
-
-    if (current === "running" && prev !== null && prev !== "running") {
-      void loadWorkbench();
-
-      // Agent just started — greet if conversation is empty
-      if (activeConversationId && conversationMessages.length === 0 && !chatSending) {
-        void fetchGreeting(activeConversationId);
-      }
-    }
-  }, [agentStatus?.state, loadWorkbench, activeConversationId, conversationMessages.length, chatSending, fetchGreeting]);
 
   // ── Context value ──────────────────────────────────────────────────
 
@@ -2226,17 +1995,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     importBusy, importPassword, importFile, importError, importSuccess,
     onboardingStep, onboardingOptions, onboardingName, onboardingStyle, onboardingTheme,
     onboardingRunMode, onboardingCloudProvider, onboardingSmallModel, onboardingLargeModel,
-    onboardingProvider, onboardingApiKey, onboardingOpenRouterModel, onboardingSubscriptionTab,
-    onboardingTelegramToken,
-    onboardingDiscordToken, onboardingWhatsAppSessionPath,
-    onboardingTwilioAccountSid, onboardingTwilioAuthToken, onboardingTwilioPhoneNumber,
-    onboardingBlooioApiKey, onboardingBlooioPhoneNumber,
-    onboardingSelectedChains, onboardingRpcSelections, onboardingRpcKeys, onboardingAvatar, onboardingRestarting,
+    onboardingProvider, onboardingApiKey, onboardingSelectedChains,
+    onboardingRpcSelections, onboardingRpcKeys,
     commandPaletteOpen, commandQuery, commandActiveIndex,
     mcpConfiguredServers, mcpServerStatuses, mcpMarketplaceQuery, mcpMarketplaceResults,
     mcpMarketplaceLoading, mcpAction, mcpAddingServer, mcpAddingResult,
     mcpEnvInputs, mcpHeaderInputs,
-    selectedVrmIndex, customVrmUrl,
     droppedFiles, shareIngestNotice,
     activeGameApp, activeGameDisplayName, activeGameViewerUrl, activeGameSandbox,
     activeGamePostMessageAuth,

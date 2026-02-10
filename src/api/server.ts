@@ -8,25 +8,20 @@
 
 import crypto from "node:crypto";
 import fs from "node:fs";
-import fsPromises from "node:fs/promises";
 import http from "node:http";
-import os from "node:os";
 import path from "node:path";
-import { execFile } from "node:child_process";
 import {
   type AgentRuntime,
   ChannelType,
   type Content,
   createMessageMemory,
   logger,
-  ModelType,
   stringToUuid,
   type UUID,
 } from "@elizaos/core";
 import { type WebSocket, WebSocketServer } from "ws";
 import { CloudManager } from "../cloud/cloud-manager.js";
 import {
-  type ConnectorConfig,
   configFileExists,
   loadMilaidyConfig,
   type MilaidyConfig,
@@ -52,44 +47,6 @@ import {
   searchSkillsMarketplace,
   uninstallMarketplaceSkill,
 } from "../services/skill-marketplace.js";
-import {
-  applySubscriptionCredentials,
-  type CodexFlow,
-  deleteCredentials,
-  getSubscriptionStatus,
-  type OAuthCredentials,
-  saveCredentials,
-  startAnthropicLogin,
-  startCodexLogin,
-} from "../auth/index.js";
-import {
-  installPlugin,
-  listInstalledPlugins,
-  uninstallPlugin,
-} from "../services/plugin-installer.js";
-import {
-  getPluginInfo,
-  getRegistryPlugins,
-  listNonAppPlugins,
-  refreshRegistry,
-  searchNonAppPlugins,
-  searchPlugins,
-} from "../services/registry-client.js";
-import { requestRestart } from "../runtime/restart.js";
-import { VERSION } from "../runtime/version.js";
-import { detectInstallMethod } from "../services/self-updater.js";
-import {
-  getCatalogSkill,
-  getCatalogSkills,
-  refreshCatalog,
-  searchCatalogSkills,
-} from "../services/skill-catalog-client.js";
-import {
-  CHANNEL_DIST_TAGS,
-  checkForUpdate,
-  fetchAllChannelVersions,
-  resolveChannel,
-} from "../services/update-checker.js";
 import { type CloudRouteState, handleCloudRoute } from "./cloud-routes.js";
 import { handleDatabaseRoute } from "./database.js";
 import {
@@ -166,8 +123,6 @@ interface ServerState {
   appManager: AppManager;
   /** In-memory queue for share ingest items. */
   shareIngestQueue: ShareIngestItem[];
-  /** Broadcast current agent status to all WebSocket clients. Set by startApiServer. */
-  broadcastStatus: (() => void) | null;
   /** Transient OAuth flow state for subscription auth. */
   _anthropicFlow?: import("../auth/anthropic.js").AnthropicFlow;
   _codexFlow?: import("../auth/openai-codex.js").CodexFlow;
@@ -206,7 +161,7 @@ interface PluginEntry {
   enabled: boolean;
   configured: boolean;
   envKey: string | null;
-  category: "ai-provider" | "connector" | "database" | "app" | "feature";
+  category: "ai-provider" | "connector" | "database" | "feature";
   /** Where the plugin comes from: "bundled" (ships with Milaidy) or "store" (user-installed from registry). */
   source: "bundled" | "store";
   configKeys: string[];
@@ -273,7 +228,7 @@ interface PluginIndexEntry {
   name: string;
   npmName: string;
   description: string;
-  category: "ai-provider" | "connector" | "database" | "app" | "feature";
+  category: "ai-provider" | "connector" | "database" | "feature";
   envKey: string | null;
   configKeys: string[];
   pluginParameters?: Record<string, Record<string, unknown>>;
@@ -318,154 +273,6 @@ function buildParamDefs(
       isSet,
     };
   });
-}
-
-/**
- * Infer parameter definitions from bare config key names when explicit
- * pluginParameters metadata is not provided.  Uses naming conventions to
- * determine type, sensitivity, requirement level, and a human-readable
- * description.
- */
-function inferParamDefs(configKeys: string[]): PluginParamDef[] {
-  return configKeys.map((key) => {
-    const upper = key.toUpperCase();
-
-    // Detect sensitive keys
-    const sensitive =
-      upper.includes("_API_KEY") ||
-      upper.includes("_SECRET") ||
-      upper.includes("_TOKEN") ||
-      upper.includes("_PASSWORD") ||
-      upper.includes("_PRIVATE_KEY") ||
-      upper.includes("_SIGNING_") ||
-      upper.includes("ENCRYPTION_");
-
-    // Detect booleans
-    const isBoolean =
-      upper.includes("ENABLED") ||
-      upper.includes("_ENABLE_") ||
-      upper.startsWith("ENABLE_") ||
-      upper.includes("DRY_RUN") ||
-      upper.includes("_DEBUG") ||
-      upper.includes("_VERBOSE") ||
-      upper.includes("AUTO_") ||
-      upper.includes("FORCE_") ||
-      upper.includes("DISABLE_") ||
-      upper.includes("SHOULD_") ||
-      upper.endsWith("_SSL");
-
-    // Detect numbers
-    const isNumber =
-      upper.endsWith("_PORT") ||
-      upper.endsWith("_INTERVAL") ||
-      upper.endsWith("_TIMEOUT") ||
-      upper.endsWith("_MS") ||
-      upper.endsWith("_MINUTES") ||
-      upper.endsWith("_SECONDS") ||
-      upper.endsWith("_LIMIT") ||
-      upper.endsWith("_MAX") ||
-      upper.endsWith("_MIN") ||
-      upper.includes("_MAX_") ||
-      upper.includes("_MIN_") ||
-      upper.endsWith("_COUNT") ||
-      upper.endsWith("_SIZE") ||
-      upper.endsWith("_STEPS");
-
-    const type = isBoolean ? "boolean" : isNumber ? "number" : "string";
-
-    // Primary keys are required (API keys, tokens, bot tokens, account IDs)
-    const required =
-      sensitive &&
-      (upper.endsWith("_API_KEY") ||
-        upper.endsWith("_BOT_TOKEN") ||
-        upper.endsWith("_TOKEN") ||
-        upper.endsWith("_PRIVATE_KEY"));
-
-    // Generate a human-readable description from the key name
-    const description = inferDescription(key);
-
-    const envValue = process.env[key];
-    const isSet = Boolean(envValue?.trim());
-
-    return {
-      key,
-      type,
-      description,
-      required,
-      sensitive,
-      default: undefined,
-      options: undefined,
-      currentValue: isSet
-        ? sensitive
-          ? maskValue(envValue ?? "")
-          : (envValue ?? "")
-        : null,
-      isSet,
-    };
-  });
-}
-
-/** Derive a human-readable description from an environment variable key. */
-function inferDescription(key: string): string {
-  const upper = key.toUpperCase();
-
-  // Special well-known suffixes
-  if (upper.endsWith("_API_KEY"))
-    return `API key for ${prefixLabel(key, "_API_KEY")}`;
-  if (upper.endsWith("_BOT_TOKEN"))
-    return `Bot token for ${prefixLabel(key, "_BOT_TOKEN")}`;
-  if (upper.endsWith("_TOKEN"))
-    return `Authentication token for ${prefixLabel(key, "_TOKEN")}`;
-  if (upper.endsWith("_SECRET"))
-    return `Secret for ${prefixLabel(key, "_SECRET")}`;
-  if (upper.endsWith("_PRIVATE_KEY"))
-    return `Private key for ${prefixLabel(key, "_PRIVATE_KEY")}`;
-  if (upper.endsWith("_PASSWORD"))
-    return `Password for ${prefixLabel(key, "_PASSWORD")}`;
-  if (upper.endsWith("_RPC_URL"))
-    return `RPC endpoint URL for ${prefixLabel(key, "_RPC_URL")}`;
-  if (upper.endsWith("_BASE_URL"))
-    return `Base URL for ${prefixLabel(key, "_BASE_URL")}`;
-  if (upper.endsWith("_URL")) return `URL for ${prefixLabel(key, "_URL")}`;
-  if (upper.endsWith("_ENDPOINT"))
-    return `Endpoint for ${prefixLabel(key, "_ENDPOINT")}`;
-  if (upper.endsWith("_HOST"))
-    return `Host address for ${prefixLabel(key, "_HOST")}`;
-  if (upper.endsWith("_PORT"))
-    return `Port number for ${prefixLabel(key, "_PORT")}`;
-  if (upper.endsWith("_MODEL") || upper.includes("_MODEL_"))
-    return `Model identifier for ${prefixLabel(key, "_MODEL")}`;
-  if (upper.endsWith("_VOICE") || upper.includes("_VOICE_"))
-    return `Voice setting for ${prefixLabel(key, "_VOICE")}`;
-  if (upper.endsWith("_DIR") || upper.endsWith("_PATH"))
-    return `Directory path for ${prefixLabel(key, "_DIR").replace(/_PATH$/i, "")}`;
-  if (upper.endsWith("_ENABLED") || upper.startsWith("ENABLE_"))
-    return `Enable/disable ${prefixLabel(key, "_ENABLED").replace(/^ENABLE_/i, "")}`;
-  if (upper.includes("DRY_RUN")) return `Dry-run mode (no real actions)`;
-  if (upper.endsWith("_INTERVAL") || upper.endsWith("_INTERVAL_MINUTES"))
-    return `Check interval for ${prefixLabel(key, "_INTERVAL")}`;
-  if (upper.endsWith("_TIMEOUT") || upper.endsWith("_TIMEOUT_MS"))
-    return `Timeout setting for ${prefixLabel(key, "_TIMEOUT")}`;
-
-  // Generic: convert KEY_NAME to "Key name"
-  return key
-    .split("_")
-    .map((w, i) =>
-      i === 0
-        ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
-        : w.toLowerCase(),
-    )
-    .join(" ");
-}
-
-/** Extract the plugin/service prefix label from a key by removing a known suffix. */
-function prefixLabel(key: string, suffix: string): string {
-  const raw = key.replace(new RegExp(`${suffix}$`, "i"), "").replace(/_+$/, "");
-  if (!raw) return key;
-  return raw
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join(" ");
 }
 
 /**
@@ -580,14 +387,9 @@ function discoverPluginsFromManifest(): PluginEntry[] {
                 ),
               )
             : undefined;
-          // Use explicit pluginParameters when available; otherwise infer
-          // parameter definitions from the bare configKeys list so that
-          // every plugin with known env vars gets a configuration UI.
           const parameters = filteredParams
             ? buildParamDefs(filteredParams)
-            : filteredConfigKeys.length > 0
-              ? inferParamDefs(filteredConfigKeys)
-              : [];
+            : [];
           const paramInfos: PluginParamInfo[] = parameters.map((pd) => ({
             key: pd.key,
             required: pd.required,
@@ -640,7 +442,7 @@ function discoverPluginsFromManifest(): PluginEntry[] {
 
 function categorizePlugin(
   id: string,
-): "ai-provider" | "connector" | "database" | "app" | "feature" {
+): "ai-provider" | "connector" | "database" | "feature" {
   const aiProviders = [
     "openai",
     "anthropic",
@@ -683,15 +485,12 @@ function categorizePlugin(
     "twitch",
     "nextcloud-talk",
     "instagram",
-    "blooio",
   ];
   const databases = ["sql", "localdb", "inmemorydb"];
-  const apps = ["babylon", "minecraft", "roblox"];
 
   if (aiProviders.includes(id)) return "ai-provider";
   if (connectors.includes(id)) return "connector";
   if (databases.includes(id)) return "database";
-  if (apps.includes(id)) return "app";
   return "feature";
 }
 
@@ -792,9 +591,12 @@ async function loadScanReportFromDisk(
   workspaceDir: string,
   runtime?: AgentRuntime | null,
 ): Promise<Record<string, unknown> | null> {
+  const fsSync = await import("node:fs");
+  const pathMod = await import("node:path");
+
   const candidates = [
-    path.join(workspaceDir, "skills", skillId, ".scan-results.json"),
-    path.join(
+    pathMod.join(workspaceDir, "skills", skillId, ".scan-results.json"),
+    pathMod.join(
       workspaceDir,
       "skills",
       ".marketplace",
@@ -812,7 +614,7 @@ async function loadScanReportFromDisk(
     if (svc?.getLoadedSkills) {
       const loaded = svc.getLoadedSkills().find((s) => s.slug === skillId);
       if (loaded?.path) {
-        candidates.push(path.join(loaded.path, ".scan-results.json"));
+        candidates.push(pathMod.join(loaded.path, ".scan-results.json"));
       }
     }
   }
@@ -820,12 +622,12 @@ async function loadScanReportFromDisk(
   // Deduplicate in case paths overlap
   const seen = new Set<string>();
   for (const candidate of candidates) {
-    const resolved = path.resolve(candidate);
+    const resolved = pathMod.resolve(candidate);
     if (seen.has(resolved)) continue;
     seen.add(resolved);
 
-    if (!fs.existsSync(resolved)) continue;
-    const content = fs.readFileSync(resolved, "utf-8");
+    if (!fsSync.existsSync(resolved)) continue;
+    const content = fsSync.readFileSync(resolved, "utf-8");
     const parsed = JSON.parse(content);
     if (
       typeof parsed.scannedAt === "string" &&
@@ -896,25 +698,7 @@ async function discoverSkills(
   // ── Primary path: pull from AgentSkillsService (most accurate) ──────────
   if (runtime) {
     try {
-      // If the service isn't registered yet (it starts asynchronously after
-      // runtime.initialize()), wait briefly for it to finish loading so the
-      // first UI request doesn't return an empty skill list.
-      let service = runtime.getService("AGENT_SKILLS_SERVICE");
-      if (!service) {
-        try {
-          const loadTimeout = new Promise<never>((_resolve, reject) =>
-            setTimeout(() => reject(new Error("timeout")), 10_000),
-          );
-          await Promise.race([
-            runtime.getServiceLoadPromise("AGENT_SKILLS_SERVICE"),
-            loadTimeout,
-          ]);
-          service = runtime.getService("AGENT_SKILLS_SERVICE");
-        } catch {
-          // Timeout or promise rejected — continue to fallback.
-        }
-      }
-
+      const service = runtime.getService("AGENT_SKILLS_SERVICE");
       // eslint-disable-next-line -- runtime service is loosely typed; cast via unknown
       const svc = service as unknown as
         | {
@@ -1300,155 +1084,11 @@ function validateSkillId(
 }
 
 // ---------------------------------------------------------------------------
-// MCP server config validation — prevent arbitrary command execution
-// ---------------------------------------------------------------------------
-
-/**
- * Allowed commands for MCP stdio servers.  These are the standard package
- * runners and runtimes used by MCP server packages.  Anything outside this
- * list is rejected — an attacker cannot register `/bin/bash` or arbitrary
- * binaries as MCP servers via the API.
- */
-const ALLOWED_MCP_COMMANDS = new Set([
-  "npx",
-  "node",
-  "bun",
-  "bunx",
-  "deno",
-  "python",
-  "python3",
-  "uvx",
-  "uv",
-  "docker",
-  "podman",
-]);
-
-/**
- * Environment variables that must never be set via MCP server config because
- * they enable code injection into spawned processes.
- */
-const BLOCKED_MCP_ENV_KEYS = new Set([
-  "LD_PRELOAD",
-  "LD_LIBRARY_PATH",
-  "DYLD_INSERT_LIBRARIES",
-  "DYLD_LIBRARY_PATH",
-  "NODE_OPTIONS",
-  "NODE_EXTRA_CA_CERTS",
-  "ELECTRON_RUN_AS_NODE",
-  "PYTHONPATH",
-  "PYTHONSTARTUP",
-  "RUBYOPT",
-  "PERL5OPT",
-  "PATH",
-  "HOME",
-  "SHELL",
-]);
-
-/**
- * Validate an MCP server config object.  Returns an error string if invalid,
- * or `null` if the config is acceptable.
- */
-function validateMcpServerConfig(
-  config: Record<string, unknown>,
-): string | null {
-  const configType = config.type as string | undefined;
-  const validTypes = ["stdio", "http", "streamable-http", "sse"];
-  if (!configType || !validTypes.includes(configType)) {
-    return `Invalid config type. Must be one of: ${validTypes.join(", ")}`;
-  }
-
-  if (configType === "stdio") {
-    const command = config.command as string | undefined;
-    if (!command) {
-      return "Command is required for stdio servers";
-    }
-    // Extract the base binary name (strip path components)
-    const baseName = command.replace(/\\/g, "/").split("/").pop() ?? "";
-    // Strip common extensions (.exe, .cmd, .bat) for Windows compatibility
-    const normalized = baseName.replace(/\.(exe|cmd|bat)$/i, "");
-    if (!ALLOWED_MCP_COMMANDS.has(normalized)) {
-      return (
-        `Command "${baseName}" is not allowed. ` +
-        `Permitted commands: ${[...ALLOWED_MCP_COMMANDS].join(", ")}`
-      );
-    }
-    // Validate args are strings (no object injection)
-    if (config.args !== undefined) {
-      if (!Array.isArray(config.args)) {
-        return "args must be an array of strings";
-      }
-      for (const arg of config.args) {
-        if (typeof arg !== "string") {
-          return "Each arg must be a string";
-        }
-      }
-    }
-  }
-
-  if (
-    configType === "http" ||
-    configType === "streamable-http" ||
-    configType === "sse"
-  ) {
-    if (!config.url) {
-      return "URL is required for remote servers";
-    }
-    if (typeof config.url !== "string") {
-      return "URL must be a string";
-    }
-    const urlLower = config.url.toLowerCase();
-    if (!urlLower.startsWith("http://") && !urlLower.startsWith("https://")) {
-      return "URL must use http:// or https:// scheme";
-    }
-  }
-
-  // Validate env vars — block keys that enable code injection
-  if (config.env !== undefined) {
-    if (
-      typeof config.env !== "object" ||
-      config.env === null ||
-      Array.isArray(config.env)
-    ) {
-      return "env must be a plain object of string key-value pairs";
-    }
-    for (const [key, val] of Object.entries(
-      config.env as Record<string, unknown>,
-    )) {
-      if (typeof val !== "string") {
-        return `env.${key} must be a string`;
-      }
-      if (BLOCKED_MCP_ENV_KEYS.has(key.toUpperCase())) {
-        return `env variable "${key}" is not allowed for security reasons`;
-      }
-    }
-  }
-
-  // Validate cwd if present — must be a string, no path traversal to root
-  if (config.cwd !== undefined) {
-    if (typeof config.cwd !== "string") {
-      return "cwd must be a string";
-    }
-  }
-
-  // Validate timeoutInMillis if present
-  if (config.timeoutInMillis !== undefined) {
-    if (
-      typeof config.timeoutInMillis !== "number" ||
-      config.timeoutInMillis < 0
-    ) {
-      return "timeoutInMillis must be a non-negative number";
-    }
-  }
-
-  return null;
-}
-
-// ---------------------------------------------------------------------------
 // Onboarding helpers
 // ---------------------------------------------------------------------------
 
 // Use shared presets for full parity between CLI and GUI onboarding.
-import { STYLE_PRESETS, composeCharacter } from "../onboarding-presets.js";
+import { STYLE_PRESETS } from "../onboarding-presets.js";
 
 import { pickRandomNames } from "../runtime/onboarding-names.js";
 
@@ -1606,184 +1246,54 @@ function getModelOptions(): {
     description: string;
   }>;
 } {
-  // All models available via Eliza Cloud (Vercel AI Gateway).
-  // Matches the curated ALLOWED_CHAT_MODELS + supplementary gateway models.
   return {
     small: [
-      // OpenAI
       {
-        id: "openai/gpt-5-mini",
-        name: "GPT-5 Mini",
-        provider: "OpenAI",
-        description: "Fast and affordable.",
+        id: "claude-haiku",
+        name: "Claude Haiku (latest)",
+        provider: "anthropic",
+        description: "Fast and efficient. Default small model.",
       },
       {
-        id: "openai/gpt-4o-mini",
+        id: "gpt-4o-mini",
         name: "GPT-4o Mini",
-        provider: "OpenAI",
-        description: "Compact multimodal model.",
-      },
-      // Anthropic
-      {
-        id: "anthropic/claude-sonnet-4",
-        name: "Claude Sonnet 4",
-        provider: "Anthropic",
-        description: "Balanced speed and capability.",
-      },
-      // Google
-      {
-        id: "google/gemini-2.5-flash-lite",
-        name: "Gemini 2.5 Flash Lite",
-        provider: "Google",
-        description: "Fastest option.",
+        provider: "openai",
+        description: "OpenAI's compact model.",
       },
       {
-        id: "google/gemini-2.5-flash",
-        name: "Gemini 2.5 Flash",
-        provider: "Google",
-        description: "Fast and smart.",
-      },
-      {
-        id: "google/gemini-2.0-flash",
-        name: "Gemini 2.0 Flash",
-        provider: "Google",
-        description: "Multimodal flash model.",
-      },
-      {
-        id: "google/gemini-1.5-flash",
-        name: "Gemini 1.5 Flash",
-        provider: "Google",
-        description: "Lightweight multimodal.",
-      },
-      // Moonshot AI
-      {
-        id: "moonshotai/kimi-k2-turbo",
-        name: "Kimi K2 Turbo",
-        provider: "Moonshot AI",
-        description: "Extra speed.",
-      },
-      // DeepSeek
-      {
-        id: "deepseek/deepseek-v3.2-exp",
-        name: "DeepSeek V3.2",
-        provider: "DeepSeek",
-        description: "Open and powerful.",
+        id: "gemini-flash",
+        name: "Gemini Flash",
+        provider: "google",
+        description: "Google's fast model.",
       },
     ],
     large: [
-      // Anthropic
       {
-        id: "anthropic/claude-sonnet-4.5",
+        id: "claude-sonnet-4-5",
         name: "Claude Sonnet 4.5",
-        provider: "Anthropic",
-        description: "Newest Claude. Excellent reasoning.",
+        provider: "anthropic",
+        description: "Powerful reasoning. Default large model.",
       },
       {
-        id: "anthropic/claude-opus-4.5",
-        name: "Claude Opus 4.5",
-        provider: "Anthropic",
-        description: "Most capable Claude model.",
-      },
-      {
-        id: "anthropic/claude-opus-4.1",
-        name: "Claude Opus 4.1",
-        provider: "Anthropic",
-        description: "Deep reasoning powerhouse.",
-      },
-      {
-        id: "anthropic/claude-sonnet-4",
-        name: "Claude Sonnet 4",
-        provider: "Anthropic",
-        description: "Balanced performance.",
-      },
-      {
-        id: "anthropic/claude-3-5-sonnet-20241022",
-        name: "Claude 3.5 Sonnet",
-        provider: "Anthropic",
-        description: "Proven multimodal model.",
-      },
-      // OpenAI
-      {
-        id: "openai/gpt-5",
-        name: "GPT-5",
-        provider: "OpenAI",
-        description: "Most capable OpenAI model.",
-      },
-      {
-        id: "openai/gpt-4o",
+        id: "gpt-4o",
         name: "GPT-4o",
-        provider: "OpenAI",
-        description: "Flagship multimodal model.",
+        provider: "openai",
+        description: "OpenAI's flagship model.",
       },
       {
-        id: "openai/gpt-4-turbo",
-        name: "GPT-4 Turbo",
-        provider: "OpenAI",
-        description: "Fast multimodal.",
-      },
-      // Google
-      {
-        id: "google/gemini-3-pro-preview",
-        name: "Gemini 3 Pro Preview",
-        provider: "Google",
-        description: "Advanced reasoning.",
+        id: "claude-opus-4-6",
+        name: "Claude Opus 4.6",
+        provider: "anthropic",
+        description: "Most capable Claude model. Deep reasoning.",
       },
       {
-        id: "google/gemini-1.5-pro",
-        name: "Gemini 1.5 Pro",
-        provider: "Google",
-        description: "Versatile multimodal.",
-      },
-      // Moonshot AI
-      {
-        id: "moonshotai/kimi-k2-0905",
-        name: "Kimi K2",
-        provider: "Moonshot AI",
-        description: "Fast and capable.",
-      },
-      // DeepSeek
-      {
-        id: "deepseek/deepseek-r1",
-        name: "DeepSeek R1",
-        provider: "DeepSeek",
-        description: "Reasoning model.",
+        id: "gemini-pro",
+        name: "Gemini Pro",
+        provider: "google",
+        description: "Google's advanced model.",
       },
     ],
   };
-}
-
-function getOpenRouterModelOptions(): Array<{
-  id: string;
-  name: string;
-  description: string;
-}> {
-  return [
-    {
-      id: "anthropic/claude-sonnet-4",
-      name: "Claude Sonnet 4",
-      description: "Balanced speed & intelligence (recommended)",
-    },
-    {
-      id: "anthropic/claude-opus-4",
-      name: "Claude Opus 4",
-      description: "Most capable, slower",
-    },
-    {
-      id: "openai/gpt-4o",
-      name: "GPT-4o",
-      description: "OpenAI's flagship model",
-    },
-    {
-      id: "google/gemini-2.5-pro-preview",
-      name: "Gemini 2.5 Pro",
-      description: "Google's latest model",
-    },
-    {
-      id: "deepseek/deepseek-chat-v3",
-      name: "DeepSeek V3",
-      description: "Cost-effective alternative",
-    },
-  ];
 }
 
 function getInventoryProviderOptions(): Array<{
@@ -2096,6 +1606,7 @@ async function handleRequest(
   // Returns the status of subscription-based auth providers
   if (method === "GET" && pathname === "/api/subscription/status") {
     try {
+      const { getSubscriptionStatus } = await import("../auth/index.js");
       json(res, { providers: getSubscriptionStatus() });
     } catch (err) {
       error(res, `Failed to get subscription status: ${err}`, 500);
@@ -2107,6 +1618,7 @@ async function handleRequest(
   // Start Anthropic OAuth flow — returns URL for user to visit
   if (method === "POST" && pathname === "/api/subscription/anthropic/start") {
     try {
+      const { startAnthropicLogin } = await import("../auth/index.js");
       const flow = await startAnthropicLogin();
       // Store flow in server state for the exchange step
       state._anthropicFlow = flow;
@@ -2130,6 +1642,9 @@ async function handleRequest(
       return;
     }
     try {
+      const { saveCredentials, applySubscriptionCredentials } = await import(
+        "../auth/index.js"
+      );
       const flow = state._anthropicFlow;
       if (!flow) {
         error(res, "No active flow — call /start first", 400);
@@ -2179,6 +1694,7 @@ async function handleRequest(
   // Start OpenAI Codex OAuth flow — returns URL and starts callback server
   if (method === "POST" && pathname === "/api/subscription/openai/start") {
     try {
+      const { startCodexLogin } = await import("../auth/index.js");
       // Clean up any stale flow from a previous attempt
       if (state._codexFlow) {
         try {
@@ -2224,8 +1740,11 @@ async function handleRequest(
       waitForCallback?: boolean;
     }>(req, res);
     if (!body) return;
-    let flow: CodexFlow | undefined;
+    let flow: import("../auth/index.js").CodexFlow | undefined;
     try {
+      const { saveCredentials, applySubscriptionCredentials } = await import(
+        "../auth/index.js"
+      );
       flow = state._codexFlow;
 
       if (!flow) {
@@ -2242,7 +1761,7 @@ async function handleRequest(
       }
 
       // Wait for credentials (either from callback server or manual submission)
-      let credentials: OAuthCredentials;
+      let credentials: import("../auth/index.js").OAuthCredentials;
       try {
         credentials = await flow.credentials;
       } catch (err) {
@@ -2280,6 +1799,7 @@ async function handleRequest(
     const provider = pathname.split("/").pop();
     if (provider === "anthropic-subscription" || provider === "openai-codex") {
       try {
+        const { deleteCredentials } = await import("../auth/index.js");
         deleteCredentials(provider);
         json(res, { success: true });
       } catch (err) {
@@ -2295,12 +1815,9 @@ async function handleRequest(
   if (method === "GET" && pathname === "/api/status") {
     const uptime = state.startedAt ? Date.now() - state.startedAt : undefined;
 
-    // Cloud mode: report cloud connection status alongside local state.
-    // runMode is derived from the persisted config (cloud.enabled) so the
-    // UI stays in sync even before a CloudManager proxy is connected.
+    // Cloud mode: report cloud connection status alongside local state
     const cloudProxy = state.cloudManager?.getProxy();
-    const cloudEnabledInConfig = Boolean(state.config.cloud?.enabled);
-    const runMode = cloudEnabledInConfig ? "cloud" : "local";
+    const runMode = cloudProxy ? "cloud" : "local";
     const cloudStatus = state.cloudManager
       ? {
           connectionStatus: state.cloudManager.getStatus(),
@@ -2311,70 +1828,12 @@ async function handleRequest(
     json(res, {
       state: cloudProxy ? "running" : state.agentState,
       agentName: cloudProxy ? cloudProxy.agentName : state.agentName,
-      model: cloudEnabledInConfig ? "cloud" : state.model,
+      model: cloudProxy ? "cloud" : state.model,
       uptime,
       startedAt: state.startedAt,
       runMode,
       cloud: cloudStatus,
     });
-    return;
-  }
-
-
-  // ── POST /api/memories/import ───────────────────────────────────────
-  if (method === "POST" && pathname === "/api/memories/import") {
-    const body = await readJsonBody<{
-      source: "chatgpt" | "claude" | "freeform";
-      content: string;
-    }>(req, res);
-    if (!body) return;
-
-    const ALLOWED_SOURCES = ["chatgpt", "claude", "freeform"] as const;
-    if (
-      !body.source ||
-      !ALLOWED_SOURCES.includes(body.source as (typeof ALLOWED_SOURCES)[number])
-    ) {
-      error(
-        res,
-        "Invalid source. Must be one of: chatgpt, claude, freeform",
-        400,
-      );
-      return;
-    }
-    if (!body.content?.trim()) {
-      error(res, "content is required", 400);
-      return;
-    }
-
-    try {
-      const workspaceDir =
-        state.config.agents?.defaults?.workspace ||
-        path.join(os.homedir(), ".milaidy", "workspace");
-      const importDir = path.join(workspaceDir, "imported");
-      await fsPromises.mkdir(importDir, { recursive: true });
-
-      const filename = `${body.source}-memories.md`;
-      const filepath = path.join(importDir, filename);
-      const header = `# Imported Memories (${body.source})\n\n*Imported at ${new Date().toISOString()}*\n\n`;
-      await fsPromises.writeFile(
-        filepath,
-        `${header}${body.content.trim()}\n`,
-        "utf-8",
-      );
-
-      const lines = body.content
-        .trim()
-        .split("\n")
-        .filter((l) => l.trim());
-      json(res, {
-        success: true,
-        memoriesCount: lines.length,
-        file: filename,
-        preview: lines.slice(0, 3).join("\n"),
-      });
-    } catch (err) {
-      error(res, `Memory import failed: ${err}`, 500);
-    }
     return;
   }
 
@@ -2389,11 +1848,10 @@ async function handleRequest(
   if (method === "GET" && pathname === "/api/onboarding/options") {
     json(res, {
       names: pickRandomNames(6),
-      styles: STYLE_PRESETS.map((p) => ({ ...p, ...composeCharacter(p) })),
+      styles: STYLE_PRESETS,
       providers: getProviderOptions(),
       cloudProviders: getCloudProviderOptions(),
       models: getModelOptions(),
-      openrouterModels: getOpenRouterModelOptions(),
       inventoryProviders: getInventoryProviderOptions(),
       sharedStyleRules: "Keep responses brief. Be helpful and concise.",
     });
@@ -2435,7 +1893,6 @@ async function handleRequest(
     if (body.adjectives) agent.adjectives = body.adjectives;
     if (body.topics) agent.topics = body.topics;
     if (body.messageExamples) agent.messageExamples = body.messageExamples;
-    if (body.postExamples) agent.postExamples = body.postExamples;
 
     // ── Theme preference ──────────────────────────────────────────────────
     if (body.theme) {
@@ -2458,8 +1915,8 @@ async function handleRequest(
       if (body.cloudProvider) {
         config.cloud.provider = body.cloudProvider as string;
       }
-      // Persist the user-selected models, falling back to sensible defaults
-      // so the cloud plugin always has a valid model to call.
+      // Always ensure model defaults when cloud is selected so the cloud
+      // plugin has valid models to call even if the user didn't pick any.
       if (!config.models) config.models = {};
       config.models.small =
         (body.smallModel as string) || config.models.small || "openai/gpt-5-mini";
@@ -2480,24 +1937,6 @@ async function handleRequest(
           process.env[providerOpt.envKey] = body.providerApiKey as string;
         }
       }
-
-      // OpenRouter requires explicit model selection — persist the chosen model
-      if (body.provider === "openrouter" && body.openrouterModel) {
-        const agentEntry = config.agents?.list?.[0] as
-          | Record<string, unknown>
-          | undefined;
-        if (agentEntry) {
-          agentEntry.model = body.openrouterModel as string;
-        }
-        // Also persist in config.agent.model (OpenRouter format)
-        (config as Record<string, unknown>).agent = {
-          ...(((config as Record<string, unknown>).agent as Record<
-            string,
-            unknown
-          >) || {}),
-          model: `openrouter/${body.openrouterModel}`,
-        };
-      }
     }
 
     // ── Subscription providers (no API key needed — uses OAuth) ──────────
@@ -2513,33 +1952,9 @@ async function handleRequest(
       if (!config.agents.defaults) config.agents.defaults = {};
       (config.agents.defaults as Record<string, unknown>).subscriptionProvider =
         body.provider;
-
-      // Default model for OpenAI subscription → Codex 5.3
-      if (body.provider === "openai-subscription") {
-        const agentEntry = config.agents?.list?.[0] as
-          | Record<string, unknown>
-          | undefined;
-        if (agentEntry) {
-          agentEntry.model = "gpt-5.3-codex";
-        }
-      }
-
       logger.info(
         `[milaidy-api] Subscription provider selected: ${body.provider} — complete OAuth via /api/subscription/ endpoints`,
       );
-    }
-
-    // ── Messaging channels ───────────────────────────────────────────────
-    if (
-      body.channels &&
-      typeof body.channels === "object" &&
-      !Array.isArray(body.channels) &&
-      Object.keys(body.channels).length > 0
-    ) {
-      config.connectors = {
-        ...(config.connectors ?? {}),
-        ...(body.channels as Record<string, ConnectorConfig>),
-      };
     }
 
     // ── Inventory / RPC providers ─────────────────────────────────────────
@@ -2559,18 +1974,6 @@ async function handleRequest(
         if (rpcDef?.envKey && inv.rpcApiKey) {
           (config.env as Record<string, string>)[rpcDef.envKey] = inv.rpcApiKey;
           process.env[rpcDef.envKey] = inv.rpcApiKey;
-        }
-      }
-    }
-
-    // ── Connectors (Telegram, Discord, etc.) ────────────────────────────
-    if (body.connectors && typeof body.connectors === "object") {
-      if (!config.connectors) config.connectors = {};
-      for (const [name, cfg] of Object.entries(
-        body.connectors as Record<string, Record<string, unknown>>,
-      )) {
-        if (cfg && typeof cfg === "object") {
-          config.connectors[name] = cfg as ConnectorConfig;
         }
       }
     }
@@ -2735,52 +2138,6 @@ async function handleRequest(
         state.agentState = "running";
         state.agentName = newRuntime.character.name ?? "Milaidy";
         state.startedAt = Date.now();
-
-        // Re-initialise CloudManager when cloud was enabled after the
-        // original server startup (e.g. during onboarding).  Reload config
-        // from disk so we pick up the API key saved by the cloud login flow.
-        try {
-          const freshCfg = loadMilaidyConfig();
-          state.config = freshCfg;
-
-          // ── Recover cloud API key from runtime (DB / character secrets) ─
-          const runtimeCloudKey = newRuntime.getSetting("ELIZAOS_CLOUD_API_KEY");
-          if (runtimeCloudKey && !freshCfg.cloud?.apiKey) {
-            if (!freshCfg.cloud) (freshCfg as Record<string, unknown>).cloud = {};
-            const cloud = freshCfg.cloud as Record<string, unknown>;
-            cloud.apiKey = String(runtimeCloudKey);
-            if (!cloud.enabled) cloud.enabled = true;
-            state.config = freshCfg;
-            try { saveMilaidyConfig(freshCfg); } catch { /* non-fatal */ }
-            logger.info(
-              "[milaidy-api] Recovered cloud API key from database into config",
-            );
-          }
-
-          if (
-            freshCfg.cloud?.enabled &&
-            freshCfg.cloud?.apiKey &&
-            !state.cloudManager
-          ) {
-            const mgr = new CloudManager(freshCfg.cloud, {
-              onStatusChange: (s) => {
-                logger.info(
-                  `[cloud-manager] Cloud connection status: ${s}`,
-                );
-              },
-            });
-            mgr.init();
-            state.cloudManager = mgr;
-            logger.info(
-              "[milaidy-api] Cloud manager initialised after restart (Eliza Cloud enabled)",
-            );
-          }
-        } catch (cfgErr) {
-          logger.warn(
-            `[milaidy-api] Could not re-initialise cloud manager after restart: ${cfgErr instanceof Error ? cfgErr.message : cfgErr}`,
-          );
-        }
-
         json(res, {
           ok: true,
           status: {
@@ -3124,38 +2481,13 @@ async function handleRequest(
     }
 
     try {
-      const modelParams = { prompt, temperature: 0.8, maxTokens: 1500 };
-
-      // Try TEXT_SMALL first, fall back to TEXT_LARGE if that provider
-      // isn't configured (e.g. missing API key for the small-model provider).
-      let result: string | undefined;
-      for (const model of [ModelType.TEXT_SMALL, ModelType.TEXT_LARGE]) {
-        try {
-          result = String(await rt.useModel(model, modelParams));
-          break;
-        } catch (modelErr) {
-          const modelMsg = modelErr instanceof Error ? modelErr.message : "";
-          const isKeyMissing =
-            /api.?key|missing|unauthorized|authentication/i.test(modelMsg);
-          if (isKeyMissing && model === ModelType.TEXT_SMALL) {
-            logger.warn(
-              `[character-generate] TEXT_SMALL failed (${modelMsg}), trying TEXT_LARGE…`,
-            );
-            continue;
-          }
-          throw modelErr;
-        }
-      }
-
-      if (result === undefined) {
-        error(
-          res,
-          "No AI model provider is configured with a valid API key. Set one up in Settings → Model Provider.",
-          503,
-        );
-        return;
-      }
-      json(res, { generated: result });
+      const { ModelType } = await import("@elizaos/core");
+      const result = await rt.useModel(ModelType.TEXT_SMALL, {
+        prompt,
+        temperature: 0.8,
+        maxTokens: 1500,
+      });
+      json(res, { generated: String(result) });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "generation failed";
       logger.error(`[character-generate] ${msg}`);
@@ -3367,37 +2699,8 @@ async function handleRequest(
         return;
       }
 
-      // Only allow env vars declared in the plugin's parameter definitions.
-      // This prevents attackers from injecting arbitrary env vars like
-      // NODE_OPTIONS, LD_PRELOAD, PATH, etc. via the config endpoint.
-      const allowedParamKeys = new Set(plugin.parameters.map((p) => p.key));
-
-      // Defense-in-depth: block dangerous system env vars even if a plugin
-      // accidentally declares one of these as a parameter key.
-      const BLOCKED_ENV_KEYS = new Set([
-        "LD_PRELOAD",
-        "LD_LIBRARY_PATH",
-        "DYLD_INSERT_LIBRARIES",
-        "DYLD_LIBRARY_PATH",
-        "NODE_OPTIONS",
-        "NODE_EXTRA_CA_CERTS",
-        "ELECTRON_RUN_AS_NODE",
-        "PATH",
-        "HOME",
-        "SHELL",
-        "MILAIDY_API_TOKEN",
-        "DATABASE_URL",
-        "POSTGRES_URL",
-      ]);
-
       for (const [key, value] of Object.entries(body.config)) {
         if (typeof value === "string" && value.trim()) {
-          if (!allowedParamKeys.has(key)) {
-            continue; // silently skip keys not declared in plugin parameters
-          }
-          if (BLOCKED_ENV_KEYS.has(key.toUpperCase())) {
-            continue; // never allow dangerous system env vars
-          }
           process.env[key] = value;
         }
       }
@@ -3460,12 +2763,7 @@ async function handleRequest(
 
       // Trigger runtime restart if available
       if (ctx?.onRestart) {
-        const previousState = state.agentState;
-        state.agentState = "restarting";
-        state.broadcastStatus?.();
-        logger.info(
-          "[milaidy-api] Triggering runtime restart for plugin toggle...",
-        );
+        logger.info("[milaidy-api] Triggering runtime restart...");
         ctx
           .onRestart()
           .then((newRuntime) => {
@@ -3474,19 +2772,12 @@ async function handleRequest(
               state.agentState = "running";
               state.agentName = newRuntime.character.name ?? "Milaidy";
               state.startedAt = Date.now();
-              state.broadcastStatus?.();
-              logger.info(
-                "[milaidy-api] Runtime restarted successfully after plugin toggle",
-              );
+              logger.info("[milaidy-api] Runtime restarted successfully");
             } else {
-              state.agentState = previousState;
-              state.broadcastStatus?.();
               logger.warn("[milaidy-api] Runtime restart returned null");
             }
           })
           .catch((err) => {
-            state.agentState = previousState;
-            state.broadcastStatus?.();
             logger.error(
               `[milaidy-api] Runtime restart failed: ${err instanceof Error ? err.message : err}`,
             );
@@ -3494,16 +2785,21 @@ async function handleRequest(
       }
     }
 
-    const restarting = body.enabled !== undefined && Boolean(ctx?.onRestart);
-    json(res, { ok: true, plugin, restarting });
+    json(res, { ok: true, plugin });
     return;
   }
 
   // ── GET /api/registry/plugins ──────────────────────────────────────────
   if (method === "GET" && pathname === "/api/registry/plugins") {
+    const { getRegistryPlugins } = await import(
+      "../services/registry-client.js"
+    );
+    const { listInstalledPlugins: listInstalled } = await import(
+      "../services/plugin-installer.js"
+    );
     try {
       const registry = await getRegistryPlugins();
-      const installed = await listInstalledPlugins();
+      const installed = await listInstalled();
       const installedNames = new Set(installed.map((p) => p.name));
 
       // Also check which plugins are loaded in the runtime
@@ -3550,6 +2846,8 @@ async function handleRequest(
     const name = decodeURIComponent(
       pathname.slice("/api/registry/plugins/".length),
     );
+    const { getPluginInfo } = await import("../services/registry-client.js");
+
     try {
       const info = await getPluginInfo(name);
       if (!info) {
@@ -3575,6 +2873,8 @@ async function handleRequest(
       return;
     }
 
+    const { searchPlugins } = await import("../services/registry-client.js");
+
     try {
       const limitParam = url.searchParams.get("limit");
       const limit = limitParam
@@ -3594,6 +2894,8 @@ async function handleRequest(
 
   // ── POST /api/registry/refresh ──────────────────────────────────────────
   if (method === "POST" && pathname === "/api/registry/refresh") {
+    const { refreshRegistry } = await import("../services/registry-client.js");
+
     try {
       const registry = await refreshRegistry();
       json(res, { ok: true, count: registry.size });
@@ -3622,6 +2924,8 @@ async function handleRequest(
       return;
     }
 
+    const { installPlugin } = await import("../services/plugin-installer.js");
+
     try {
       const result = await installPlugin(pluginName, (progress) => {
         logger.info(`[install] ${progress.phase}: ${progress.message}`);
@@ -3634,6 +2938,7 @@ async function handleRequest(
 
       // If autoRestart is not explicitly false, restart the agent
       if (body.autoRestart !== false && result.requiresRestart) {
+        const { requestRestart } = await import("../runtime/restart.js");
         // Defer the restart so the HTTP response is sent first
         setTimeout(() => {
           Promise.resolve(
@@ -3682,6 +2987,8 @@ async function handleRequest(
       return;
     }
 
+    const { uninstallPlugin } = await import("../services/plugin-installer.js");
+
     try {
       const result = await uninstallPlugin(pluginName);
 
@@ -3691,6 +2998,7 @@ async function handleRequest(
       }
 
       if (body.autoRestart !== false && result.requiresRestart) {
+        const { requestRestart } = await import("../runtime/restart.js");
         setTimeout(() => {
           Promise.resolve(
             requestRestart(`Plugin ${pluginName} uninstalled`),
@@ -3723,6 +3031,10 @@ async function handleRequest(
   // ── GET /api/plugins/installed ──────────────────────────────────────────
   // List plugins that were installed from the registry at runtime.
   if (method === "GET" && pathname === "/api/plugins/installed") {
+    const { listInstalledPlugins } = await import(
+      "../services/plugin-installer.js"
+    );
+
     try {
       const installed = await listInstalledPlugins();
       json(res, { count: installed.length, plugins: installed });
@@ -3740,6 +3052,9 @@ async function handleRequest(
   // Browse the full skill catalog (paginated).
   if (method === "GET" && pathname === "/api/skills/catalog") {
     try {
+      const { getCatalogSkills } = await import(
+        "../services/skill-catalog-client.js"
+      );
       const all = await getCatalogSkills();
       const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
       const perPage = Math.min(
@@ -3818,6 +3133,9 @@ async function handleRequest(
       return;
     }
     try {
+      const { searchCatalogSkills } = await import(
+        "../services/skill-catalog-client.js"
+      );
       const limit = Math.min(
         100,
         Math.max(1, Number(url.searchParams.get("limit")) || 30),
@@ -3842,6 +3160,9 @@ async function handleRequest(
     // Exclude "search" which is handled above
     if (slug && slug !== "search") {
       try {
+        const { getCatalogSkill } = await import(
+          "../services/skill-catalog-client.js"
+        );
         const skill = await getCatalogSkill(slug);
         if (!skill) {
           error(res, `Skill "${slug}" not found in catalog`, 404);
@@ -3862,6 +3183,9 @@ async function handleRequest(
   // ── POST /api/skills/catalog/refresh ───────────────────────────────────
   if (method === "POST" && pathname === "/api/skills/catalog/refresh") {
     try {
+      const { refreshCatalog } = await import(
+        "../services/skill-catalog-client.js"
+      );
       const skills = await refreshCatalog();
       json(res, { ok: true, count: skills.length });
     } catch (err) {
@@ -4274,6 +3598,7 @@ async function handleRequest(
       return;
     }
 
+    const { execFile } = await import("node:child_process");
     const opener =
       process.platform === "darwin"
         ? "open"
@@ -4316,6 +3641,9 @@ async function handleRequest(
       source = "workspace";
     } else if (fs.existsSync(path.join(mpDir, "SKILL.md"))) {
       try {
+        const { uninstallMarketplaceSkill } = await import(
+          "../services/skill-marketplace.js"
+        );
         await uninstallMarketplaceSkill(workspaceDir, skillId);
         deleted = true;
         source = "marketplace";
@@ -4891,6 +4219,14 @@ async function handleRequest(
 
   // ── GET /api/update/status ───────────────────────────────────────────────
   if (method === "GET" && pathname === "/api/update/status") {
+    const { VERSION } = await import("../runtime/version.js");
+    const {
+      resolveChannel,
+      checkForUpdate,
+      fetchAllChannelVersions,
+      CHANNEL_DIST_TAGS,
+    } = await import("../services/update-checker.js");
+    const { detectInstallMethod } = await import("../services/self-updater.js");
     const channel = resolveChannel(state.config.update);
 
     const [check, versions] = await Promise.all([
@@ -4936,78 +4272,6 @@ async function handleRequest(
     return;
   }
 
-  // ── GET /api/connectors ──────────────────────────────────────────────────
-  if (method === "GET" && pathname === "/api/connectors") {
-    const connectors = state.config.connectors ?? state.config.channels ?? {};
-    json(res, {
-      connectors: redactConfigSecrets(connectors as Record<string, unknown>),
-    });
-    return;
-  }
-
-  // ── POST /api/connectors ─────────────────────────────────────────────────
-  if (method === "POST" && pathname === "/api/connectors") {
-    const body = await readJsonBody(req, res);
-    if (!body) return;
-    const name = body.name;
-    const config = body.config;
-    if (!name || typeof name !== "string" || !name.trim()) {
-      error(res, "Missing connector name", 400);
-      return;
-    }
-    if (!config || typeof config !== "object") {
-      error(res, "Missing connector config", 400);
-      return;
-    }
-    if (!state.config.connectors) state.config.connectors = {};
-    state.config.connectors[name.trim()] = config as ConnectorConfig;
-    try {
-      saveMilaidyConfig(state.config);
-    } catch {
-      /* test envs */
-    }
-    json(res, {
-      connectors: redactConfigSecrets(
-        (state.config.connectors ?? {}) as Record<string, unknown>,
-      ),
-    });
-    return;
-  }
-
-  // ── DELETE /api/connectors/:name ─────────────────────────────────────────
-  if (method === "DELETE" && pathname.startsWith("/api/connectors/")) {
-    const name = decodeURIComponent(pathname.slice("/api/connectors/".length));
-    if (!name) {
-      error(res, "Missing connector name", 400);
-      return;
-    }
-    if (state.config.connectors) {
-      delete state.config.connectors[name];
-    }
-    // Also remove from legacy channels key
-    if (state.config.channels) {
-      delete state.config.channels[name];
-    }
-    try {
-      saveMilaidyConfig(state.config);
-    } catch {
-      /* test envs */
-    }
-    json(res, {
-      connectors: redactConfigSecrets(
-        (state.config.connectors ?? {}) as Record<string, unknown>,
-      ),
-    });
-    return;
-  }
-
-  // ── POST /api/restart ───────────────────────────────────────────────────
-  if (method === "POST" && pathname === "/api/restart") {
-    json(res, { ok: true, message: "Restarting..." });
-    setTimeout(() => process.exit(0), 1000);
-    return;
-  }
-
   // ── GET /api/config ──────────────────────────────────────────────────────
   if (method === "GET" && pathname === "/api/config") {
     json(res, redactConfigSecrets(state.config));
@@ -5047,8 +4311,7 @@ async function handleRequest(
       "approvals",
       "session",
       "web",
-      "connectors",
-      "channels", // backward compat
+      "channels",
       "cron",
       "hooks",
       "discovery",
@@ -5102,30 +4365,6 @@ async function handleRequest(
     for (const key of Object.keys(body)) {
       if (ALLOWED_TOP_KEYS.has(key) && !BLOCKED_KEYS.has(key)) {
         filtered[key] = body[key];
-      }
-    }
-
-    // Validate MCP server configs BEFORE merging — prevent bypassing
-    // the dedicated MCP endpoints' command allowlist via PUT /api/config.
-    if (filtered.mcp && typeof filtered.mcp === "object") {
-      const mcpObj = filtered.mcp as Record<string, unknown>;
-      const servers = mcpObj.servers as Record<string, unknown> | undefined;
-      if (servers && typeof servers === "object") {
-        for (const [name, cfg] of Object.entries(servers)) {
-          if (["__proto__", "constructor", "prototype"].includes(name)) {
-            error(res, `Invalid MCP server name: "${name}"`, 400);
-            return;
-          }
-          if (cfg && typeof cfg === "object") {
-            const mcpErr = validateMcpServerConfig(
-              cfg as Record<string, unknown>,
-            );
-            if (mcpErr) {
-              error(res, `MCP server "${name}": ${mcpErr}`, 400);
-              return;
-            }
-          }
-        }
       }
     }
 
@@ -5257,7 +4496,7 @@ async function handleRequest(
       error(res, "Conversation not found", 404);
       return;
     }
-    if (!state.runtime || state.agentState !== "running") {
+    if (!state.runtime) {
       json(res, { messages: [] });
       return;
     }
@@ -5278,11 +4517,11 @@ async function handleRequest(
       }));
       json(res, { messages });
     } catch (err) {
-      // Return empty messages instead of 500 when runtime is not fully ready
-      logger.warn(
-        `[conversations] Failed to fetch messages: ${err instanceof Error ? err.message : String(err)}`,
+      error(
+        res,
+        `Failed to fetch messages: ${err instanceof Error ? err.message : String(err)}`,
+        500,
       );
-      json(res, { messages: [] });
     }
     return;
   }
@@ -5361,150 +4600,6 @@ async function handleRequest(
     } catch (err) {
       const msg = err instanceof Error ? err.message : "generation failed";
       error(res, msg, 500);
-    }
-    return;
-  }
-
-  // ── POST /api/conversations/:id/greeting ───────────────────────────
-  // Ask the agent to generate an opening greeting message for a conversation.
-  // If the LLM is not configured or fails, returns a fallback message.
-  if (
-    method === "POST" &&
-    /^\/api\/conversations\/[^/]+\/greeting$/.test(pathname)
-  ) {
-    const convId = decodeURIComponent(pathname.split("/")[3]);
-    const conv = state.conversations.get(convId);
-    if (!conv) {
-      error(res, "Conversation not found", 404);
-      return;
-    }
-
-    const FALLBACK_MSG = "please configure your models so we can chat";
-
-    const runtime = state.runtime;
-    if (!runtime) {
-      json(res, {
-        text: FALLBACK_MSG,
-        agentName: state.agentName,
-        generated: false,
-      });
-      return;
-    }
-
-    // Cloud proxy path — ask the cloud to generate a greeting
-    const proxy = state.cloudManager?.getProxy();
-    if (proxy) {
-      try {
-        const responseText = await proxy.handleChatMessage(
-          "[system: send a short greeting to open the conversation. introduce yourself briefly in your own style.]",
-        );
-        conv.updatedAt = new Date().toISOString();
-        json(res, {
-          text: responseText,
-          agentName: proxy.agentName,
-          generated: true,
-        });
-      } catch {
-        json(res, {
-          text: FALLBACK_MSG,
-          agentName: proxy.agentName,
-          generated: false,
-        });
-      }
-      return;
-    }
-
-    // Local LLM path — build a prompt from the agent's character
-    try {
-      const char = runtime.character;
-      const charName = char.name ?? state.agentName ?? "Milaidy";
-      const bio = Array.isArray(char.bio)
-        ? char.bio.join(" ")
-        : typeof char.bio === "string"
-          ? char.bio
-          : "";
-      const chatStyle = Array.isArray(char.style?.chat)
-        ? char.style.chat.join("; ")
-        : "";
-      const allStyle = Array.isArray(char.style?.all)
-        ? char.style.all.join("; ")
-        : "";
-
-      const prompt = [
-        `You are ${charName}.`,
-        bio ? `About you: ${bio}` : "",
-        char.system ? `${char.system}` : "",
-        chatStyle ? `Your chat style: ${chatStyle}` : "",
-        allStyle ? `General style rules: ${allStyle}` : "",
-        "",
-        "Write a short, natural opening message to greet someone who just started a conversation with you.",
-        "Be yourself — use your own voice, personality, and style.",
-        "Keep it brief (1-2 sentences). Do not use quotation marks around your message.",
-        "Just output the greeting, nothing else.",
-      ]
-        .filter(Boolean)
-        .join("\n");
-
-      let result: string | undefined;
-      for (const model of [ModelType.TEXT_SMALL, ModelType.TEXT_LARGE]) {
-        try {
-          result = String(
-            await runtime.useModel(model, {
-              prompt,
-              temperature: 0.9,
-              maxTokens: 200,
-            }),
-          );
-          break;
-        } catch (modelErr) {
-          const modelMsg = modelErr instanceof Error ? modelErr.message : "";
-          if (
-            /api.?key|missing|unauthorized|authentication/i.test(modelMsg) &&
-            model === ModelType.TEXT_SMALL
-          ) {
-            continue;
-          }
-          throw modelErr;
-        }
-      }
-
-      if (!result?.trim()) {
-        json(res, {
-          text: FALLBACK_MSG,
-          agentName: charName,
-          generated: false,
-        });
-        return;
-      }
-
-      // Store the greeting as a message memory in the conversation room
-      try {
-        await ensureConversationRoom(conv);
-        const agentMemory = createMessageMemory({
-          id: crypto.randomUUID() as UUID,
-          entityId: runtime.agentId,
-          roomId: conv.roomId,
-          content: {
-            text: result.trim(),
-            source: "agent_greeting",
-            channelType: ChannelType.DM,
-          },
-        });
-        await runtime.createMemory(agentMemory, "messages");
-      } catch (memErr) {
-        logger.warn(
-          `[greeting] Failed to store greeting memory: ${memErr instanceof Error ? memErr.message : String(memErr)}`,
-        );
-      }
-
-      conv.updatedAt = new Date().toISOString();
-      json(res, { text: result.trim(), agentName: charName, generated: true });
-    } catch {
-      json(res, {
-        text: FALLBACK_MSG,
-        agentName: state.agentName,
-        generated: false,
-      });
     }
     return;
   }
@@ -5725,36 +4820,22 @@ async function handleRequest(
       getUserId: () => string | undefined;
       getOrganizationId: () => string | undefined;
     } | null;
-    if (cloudAuth?.isAuthenticated()) {
+    if (!cloudAuth || !cloudAuth.isAuthenticated()) {
       json(res, {
-        connected: true,
+        connected: false,
         enabled: cloudEnabled,
         hasApiKey,
-        userId: cloudAuth.getUserId(),
-        organizationId: cloudAuth.getOrganizationId(),
-        topUpUrl: "https://www.elizacloud.ai/dashboard/billing",
-      });
-      return;
-    }
-    // Fallback: the CLOUD_AUTH service may not have been refreshed after a
-    // browser-based login flow that saved the API key to config.  If the
-    // config has cloud enabled + a valid API key, treat as connected so the
-    // UI reflects the login immediately (the service will catch up on next
-    // restart or re-init).
-    if (cloudEnabled && hasApiKey) {
-      json(res, {
-        connected: true,
-        enabled: cloudEnabled,
-        hasApiKey,
-        topUpUrl: "https://www.elizacloud.ai/dashboard/billing",
+        reason: "not_authenticated",
       });
       return;
     }
     json(res, {
-      connected: false,
+      connected: true,
       enabled: cloudEnabled,
       hasApiKey,
-      reason: "not_authenticated",
+      userId: cloudAuth.getUserId(),
+      organizationId: cloudAuth.getOrganizationId(),
+      topUpUrl: "https://www.elizacloud.ai/dashboard/billing",
     });
     return;
   }
@@ -5858,6 +4939,9 @@ async function handleRequest(
 
   // ── GET /api/apps/plugins — non-app plugins from registry ───────────
   if (method === "GET" && pathname === "/api/apps/plugins") {
+    const { listNonAppPlugins } = await import(
+      "../services/registry-client.js"
+    );
     try {
       const plugins = await listNonAppPlugins();
       json(res, plugins);
@@ -5878,6 +4962,9 @@ async function handleRequest(
       json(res, []);
       return;
     }
+    const { searchNonAppPlugins } = await import(
+      "../services/registry-client.js"
+    );
     try {
       const limitStr = url.searchParams.get("limit");
       const limit = limitStr
@@ -5897,6 +4984,7 @@ async function handleRequest(
 
   // ── POST /api/apps/refresh — refresh the registry cache ─────────────
   if (method === "POST" && pathname === "/api/apps/refresh") {
+    const { refreshRegistry } = await import("../services/registry-client.js");
     try {
       const registry = await refreshRegistry();
       json(res, { ok: true, count: registry.size });
@@ -5958,7 +5046,6 @@ async function handleRequest(
       // Todos: create a data service on the fly (plugin-todo pattern)
       try {
         const todoModule = (await import(
-          // @ts-expect-error — plugin-todo is an optional soft dependency
           "@elizaos/plugin-todo"
         )) as unknown as Record<string, unknown>;
         const createTodoDataService = todoModule.createTodoDataService as
@@ -6169,21 +5256,35 @@ async function handleRequest(
       return;
     }
 
-    // Block prototype pollution via server name
-    if (["__proto__", "constructor", "prototype"].includes(serverName)) {
-      error(res, "Invalid server name", 400);
-      return;
-    }
-
     const config = body.config as Record<string, unknown> | undefined;
     if (!config || typeof config !== "object") {
       error(res, "Server config object is required", 400);
       return;
     }
 
-    const mcpErr = validateMcpServerConfig(config);
-    if (mcpErr) {
-      error(res, mcpErr, 400);
+    const configType = config.type as string | undefined;
+    const validTypes = ["stdio", "http", "streamable-http", "sse"];
+    if (!configType || !validTypes.includes(configType)) {
+      error(
+        res,
+        `Invalid config type. Must be one of: ${validTypes.join(", ")}`,
+        400,
+      );
+      return;
+    }
+
+    if (configType === "stdio" && !config.command) {
+      error(res, "Command is required for stdio servers", 400);
+      return;
+    }
+
+    if (
+      (configType === "http" ||
+        configType === "streamable-http" ||
+        configType === "sse") &&
+      !config.url
+    ) {
+      error(res, "URL is required for remote servers", 400);
       return;
     }
 
@@ -6231,22 +5332,6 @@ async function handleRequest(
 
     if (!state.config.mcp) state.config.mcp = {};
     if (body.servers && typeof body.servers === "object") {
-      // Validate every server config in the bulk update
-      for (const [name, cfg] of Object.entries(body.servers)) {
-        if (["__proto__", "constructor", "prototype"].includes(name)) {
-          error(res, `Invalid server name: "${name}"`, 400);
-          return;
-        }
-        if (cfg && typeof cfg === "object") {
-          const mcpErr = validateMcpServerConfig(
-            cfg as Record<string, unknown>,
-          );
-          if (mcpErr) {
-            error(res, `Server "${name}": ${mcpErr}`, 400);
-            return;
-          }
-        }
-      }
       state.config.mcp.servers = body.servers as NonNullable<
         NonNullable<typeof state.config.mcp>["servers"]
       >;
@@ -6457,7 +5542,6 @@ export async function startApiServer(opts?: {
     cloudManager: null,
     appManager: new AppManager(),
     shareIngestQueue: [],
-    broadcastStatus: null,
   };
 
   // Wire the app manager to the runtime if already running
@@ -6758,9 +5842,6 @@ export async function startApiServer(opts?: {
     }
   };
 
-  // Make broadcastStatus accessible to route handlers via state
-  state.broadcastStatus = broadcastStatus;
-
   // Broadcast status every 5 seconds
   const statusInterval = setInterval(broadcastStatus, 5000);
 
@@ -6775,63 +5856,6 @@ export async function startApiServer(opts?: {
       "system",
       "agent",
     ]);
-
-    // Re-initialise CloudManager when cloud was enabled after the original
-    // server startup (e.g. enabled via onboarding, then dev-server restarts).
-    try {
-      const freshCfg = loadMilaidyConfig();
-      state.config = freshCfg;
-
-      // ── Recover cloud API key from runtime (DB / character secrets) ────
-      // If the config file was recreated without the cloud key but the
-      // runtime still has it (persisted in the database via character
-      // secrets from a prior session), write it back so the key survives.
-      const runtimeCloudKey = rt.getSetting("ELIZAOS_CLOUD_API_KEY");
-      if (runtimeCloudKey && !freshCfg.cloud?.apiKey) {
-        if (!freshCfg.cloud) (freshCfg as Record<string, unknown>).cloud = {};
-        const cloud = freshCfg.cloud as Record<string, unknown>;
-        cloud.apiKey = String(runtimeCloudKey);
-        if (!cloud.enabled) cloud.enabled = true;
-        state.config = freshCfg;
-        try {
-          saveMilaidyConfig(freshCfg);
-          addLog(
-            "info",
-            "Recovered cloud API key from database into config",
-            "cloud",
-            ["server", "cloud"],
-          );
-        } catch { /* non-fatal */ }
-      }
-
-      if (
-        freshCfg.cloud?.enabled &&
-        freshCfg.cloud?.apiKey &&
-        !state.cloudManager
-      ) {
-        const mgr = new CloudManager(freshCfg.cloud, {
-          onStatusChange: (s) => {
-            addLog("info", `Cloud connection status: ${s}`, "cloud", [
-              "server",
-              "cloud",
-            ]);
-          },
-        });
-        mgr.init();
-        state.cloudManager = mgr;
-        addLog(
-          "info",
-          "Cloud manager initialised after runtime update (Eliza Cloud enabled)",
-          "cloud",
-          ["server", "cloud"],
-        );
-      }
-    } catch (cfgErr) {
-      logger.warn(
-        `[milaidy-api] Could not re-initialise cloud manager in updateRuntime: ${cfgErr instanceof Error ? cfgErr.message : cfgErr}`,
-      );
-    }
-
     // Broadcast status update immediately after restart
     broadcastStatus();
   };
