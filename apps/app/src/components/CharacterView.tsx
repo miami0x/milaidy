@@ -7,6 +7,12 @@ import { useApp } from "../AppContext";
 import { client } from "../api-client";
 import { AvatarSelector } from "./AvatarSelector";
 
+interface ArchetypeOption {
+  id: string;
+  name: string;
+  tagline: string;
+}
+
 export function CharacterView() {
   const {
     characterData,
@@ -27,6 +33,49 @@ export function CharacterView() {
   useEffect(() => {
     void loadCharacter();
   }, [loadCharacter]);
+
+  /* ── Archetypes ─────────────────────────────────────────────────── */
+  const [archetypes, setArchetypes] = useState<ArchetypeOption[]>([]);
+  const [loadingArchetype, setLoadingArchetype] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/archetypes")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.archetypes) setArchetypes(data.archetypes);
+      })
+      .catch(() => {});
+  }, []);
+
+  const applyArchetype = useCallback(async (id: string) => {
+    if (id === "custom") return;
+    setLoadingArchetype(id);
+    try {
+      const res = await fetch(`/api/archetypes/${id}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const c = data.character;
+      if (!c) return;
+
+      // Apply archetype character data to draft
+      if (c.bio) handleCharacterFieldInput("bio", Array.isArray(c.bio) ? c.bio.join("\n") : c.bio);
+      if (c.system) handleCharacterFieldInput("system", c.system);
+      if (c.adjectives) handleCharacterFieldInput("adjectives" as any, c.adjectives);
+      if (c.topics) handleCharacterFieldInput("topics" as any, c.topics);
+      if (c.style) {
+        if (c.style.all) handleCharacterStyleInput("all", c.style.all.join("\n"));
+        if (c.style.chat) handleCharacterStyleInput("chat", c.style.chat.join("\n"));
+        if (c.style.post) handleCharacterStyleInput("post", c.style.post.join("\n"));
+      }
+      if (c.messageExamples) {
+        const formatted = c.messageExamples.map((convo: any[]) => ({
+          examples: convo.map((msg: any) => ({ name: msg.user, content: { text: msg.content.text } })),
+        }));
+        handleCharacterFieldInput("messageExamples" as any, formatted);
+      }
+    } catch { /* ignore */ }
+    setLoadingArchetype(null);
+  }, [handleCharacterFieldInput, handleCharacterStyleInput]);
 
   /* ── Character generation state ─────────────────────────────────── */
   const [generating, setGenerating] = useState<string | null>(null);
@@ -104,6 +153,35 @@ export function CharacterView() {
       <h2 className="text-lg font-bold">Character</h2>
       {/* Note: "Soul" = system prompt, "Identity" = bio in Eliza terms */}
       <p className="text-[13px] text-[var(--muted)] mb-5">Soul, identity, and appearance.</p>
+
+      {/* ═══ ARCHETYPE ═══ */}
+      {archetypes.length > 0 && (
+        <div className="mt-6 p-4 border border-[var(--border)] bg-[var(--card)]">
+          <div className="font-bold text-sm mb-1">Archetype</div>
+          <div className="text-xs text-[var(--muted)] mb-3">
+            apply a preset soul — overwrites identity, soul, and style fields below.
+          </div>
+          <div className="grid grid-cols-1 gap-1.5 max-w-[440px]">
+            {archetypes.filter((a) => a.id !== "custom").map((arch) => (
+              <button
+                key={arch.id}
+                className="text-left px-3 py-2 border border-[var(--border)] bg-[var(--card)] cursor-pointer hover:border-[var(--accent)] transition-colors disabled:opacity-40"
+                onClick={() => void applyArchetype(arch.id)}
+                disabled={loadingArchetype !== null}
+                type="button"
+              >
+                <div className="flex items-baseline justify-between">
+                  <div className="font-bold text-xs tracking-wide uppercase">{arch.name}</div>
+                  {loadingArchetype === arch.id && (
+                    <span className="text-[10px] text-[var(--muted)]">applying...</span>
+                  )}
+                </div>
+                <div className="text-[11px] text-[var(--muted)] mt-0.5">{arch.tagline}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ═══ CHARACTER IDENTITY ═══ */}
       <div className="mt-6 p-4 border border-[var(--border)] bg-[var(--card)]">
