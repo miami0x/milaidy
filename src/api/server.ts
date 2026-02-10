@@ -9,6 +9,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import {
   type AgentRuntime,
@@ -2186,8 +2187,34 @@ async function handleRequest(
       // 2. Delete the state directory (~/.milaidy/) which contains
       //    config, workspace, memory, oauth tokens, etc.
       const stateDir = resolveStateDir();
-      if (fs.existsSync(stateDir)) {
-        fs.rmSync(stateDir, { recursive: true, force: true });
+
+      // Safety: validate the resolved path before recursive deletion.
+      // MILAIDY_STATE_DIR can be overridden via env/config — if set to
+      // "/" or another sensitive path, rmSync would wipe the filesystem.
+      const resolvedState = path.resolve(stateDir);
+      const home = os.homedir();
+      const isRoot =
+        resolvedState === "/" || /^[A-Za-z]:\\?$/.test(resolvedState);
+      const isSafe =
+        !isRoot &&
+        resolvedState !== home &&
+        resolvedState.length > home.length &&
+        (resolvedState.includes(`${path.sep}.milaidy`) ||
+          resolvedState.includes(`${path.sep}milaidy`));
+      if (!isSafe) {
+        logger.warn(
+          `[milaidy-api] Refusing to delete unsafe state dir: "${resolvedState}"`,
+        );
+        error(
+          res,
+          `Reset aborted: state directory "${resolvedState}" does not appear safe to delete`,
+          400,
+        );
+        return;
+      }
+
+      if (fs.existsSync(resolvedState)) {
+        fs.rmSync(resolvedState, { recursive: true, force: true });
       }
 
       // 3. Reset server state
